@@ -120,6 +120,8 @@ Decision 校验
 
 系统初始默认 `observe`。模式升级属于高风险操作：必须记录操作者和原因。`live` 还要求账户级 `live_trading_enabled`，进程配置和数据库状态必须同时允许。
 
+当前实现中，页面“启用模拟盘”会把 Session 绑定到系统默认模拟账户并切换为 `paper`。候选信号暂以 `rule_only` 方式进入确定性检查：BUY 按策略最大仓位计算数量，EXIT 卖出可用数量；成交更新资金、持仓、委托、成交和账本。AI Decision 接入后会插入信号与风控之间，不改变 Paper Broker 边界。
+
 ## 7. 审批与执行
 
 ### 7.1 Approval

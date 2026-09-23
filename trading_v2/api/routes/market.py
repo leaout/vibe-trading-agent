@@ -10,6 +10,7 @@ from trading_v2.api.dependencies import get_market_data
 from trading_v2.domain.enums import AssetClass
 from trading_v2.domain.market import Bar, InstrumentId, MarketSnapshot
 from trading_v2.market.cpptdx import CppTdxError
+from trading_v2.market.public import PublicMarketDataError
 from trading_v2.market.provider import MarketDataHealth, MarketDataProvider
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -55,14 +56,16 @@ async def market_bars(
     instrument: str = Query(description="asset_class:venue:symbol"),
     timeframe: str = Query(default="5m"),
     limit: int = Query(default=200, ge=1, le=800),
+    provider: str = Query(default="auto", pattern="^(auto|public|cpptdx|yahoo|binance|eastmoney|sina)$"),
 ) -> list[Bar]:
     try:
         return await market_data.get_bars(
             parse_instrument(instrument),
             timeframe=timeframe,
             limit=limit,
+            **({"provider": provider} if provider not in {"auto", "public"} else {}),
         )
-    except (CppTdxError, ValueError) as exc:
+    except (CppTdxError, PublicMarketDataError, ValueError) as exc:
         raise provider_error(exc) from exc
 
 
@@ -70,9 +73,12 @@ async def market_bars(
 async def market_snapshots(
     request: SnapshotRequest,
     market_data: Annotated[MarketDataProvider, Depends(get_market_data)],
+    provider: str = Query(default="auto", pattern="^(auto|public|cpptdx|yahoo|binance|eastmoney|sina)$"),
 ) -> list[MarketSnapshot]:
     try:
         instruments = [parse_instrument(value) for value in request.instruments]
-        return await market_data.get_snapshots(instruments)
-    except (CppTdxError, ValueError) as exc:
+        if provider == "public":
+            provider = "auto"
+        return await market_data.get_snapshots(instruments, **({"provider": provider} if provider != "auto" else {}))
+    except (CppTdxError, PublicMarketDataError, ValueError) as exc:
         raise provider_error(exc) from exc

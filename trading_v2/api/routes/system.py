@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from trading_v2.api.dependencies import get_event_stream, get_runtime_state, get_settings
+from trading_v2.api.dependencies import get_event_stream, get_runtime_state, get_settings, require_auth
+from trading_v2.auth.models import User
 from trading_v2.config.settings import AppSettings
 from trading_v2.domain.base import utc_now
 from trading_v2.events import InMemoryEventStream
@@ -69,6 +70,7 @@ async def status(
 async def events(
     request: Request,
     event_stream: Annotated[InMemoryEventStream, Depends(get_event_stream)],
+    _: Annotated[User, Depends(require_auth)],
     replay: int = Query(default=20, ge=0, le=500),
 ) -> StreamingResponse:
     async def generate() -> AsyncIterator[str]:

@@ -5,7 +5,7 @@ interface SessionSidebarProps {
   selectedId: string;
   onSelect: (id: string) => void;
   onCreate: () => void;
-  marketConnected: boolean;
+  marketSource: string;
 }
 
 const statusLabel: Record<TradingSession["status"], string> = {
@@ -15,7 +15,7 @@ const statusLabel: Record<TradingSession["status"], string> = {
   attention: "需处理",
 };
 
-export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marketConnected }: SessionSidebarProps) {
+export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marketSource }: SessionSidebarProps) {
   return (
     <aside className="session-sidebar panel-edge">
       <div className="sidebar-heading">
@@ -59,7 +59,7 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marke
       </div>
 
       <div className="sidebar-system">
-        <div className="system-row"><span><i className={`health-dot ${marketConnected ? "" : "offline"}`} />行情服务</span><strong>{marketConnected ? "cpptdx" : "演示数据"}</strong></div>
+        <div className="system-row"><span><i className={`health-dot ${marketSource ? "" : "offline"}`} />行情服务</span><strong>{marketSource || "未连接"}</strong></div>
         <div className="system-row"><span><i className="health-dot offline" />Broker</span><strong>未接入</strong></div>
         <div className="system-row"><span><i className="health-dot model offline" />决策模型</span><strong>未配置</strong></div>
       </div>

@@ -15,7 +15,7 @@ Implemented:
 - Foundations for `observe / paper / live` modes and typed signal, decision, and order states.
 - A React + TypeScript workspace with sessions, candlesticks, signal overlays, chat, prompt versions, and a decision timeline.
 - A cpptdx HTTP adapter for China-equity snapshots, minute bars, health checks, and freshness tracking.
-- An explicit `DEMO DATA` state when cpptdx is unavailable. Unconfigured brokers and models are never shown as connected.
+- An explicit "not connected" state when public market data is unavailable; the UI never replaces missing quotes with test candles.
 - Durable strategy sessions, chat messages, and append-only prompt/strategy versions. SQLite is the development default; PostgreSQL is supported for production.
 - Model adapters for OpenAI, DeepSeek, Claude, and OpenAI-compatible APIs. API keys are only read from environment variables.
 - One-sentence strategy creation compiled into a strict allowlisted JSON schema. Missing model configuration or invalid output remains a safe draft.
@@ -23,12 +23,15 @@ Implemented:
 - A closed-bar signal engine with allowlisted MA, EMA, RSI, MACD, ATR, VWAP, volume-ratio, comparison, and crossover rules.
 - Running sessions scan the latest closed bars every five seconds; candidate signals are persisted and deduplicated by strategy version and bar.
 - Candidate signals update through SSE and appear on the candlestick overlay and decision timeline.
+- A system-owned Paper Broker that creates a default CNY 1,000,000 account on first start and binds it to strategy sessions.
+- Paper market fills, cash ledger, positions, orders, fills, fees, signal idempotency, position caps, and China-equity T+1 checks.
+- One-click paper-mode activation in the Web UI with equity, cash, PnL, latest order, fill, and rejection status.
 
 Not implemented yet:
 
-- Paper Broker, an Eastmoney V2 broker adapter, and live order execution.
-- Cross-market real-time providers with cpptdx routing and failover.
-- Model trading decisions after candidate signals, deterministic risk checks, a Paper Broker, and a complete audit-event journal.
+- Limit-order matching, partial fills, configurable fee schedules, an Eastmoney V2 adapter, and live execution.
+- Public multi-market market data: cpptdx/Eastmoney fallback for China equities, Yahoo Finance for US equities, and Binance for crypto.
+- Model trading decisions after candidate signals, limit-order matching, and a complete audit-event journal.
 
 This version is for architecture and UI integration. It must not be used for live automated trading.
 
@@ -78,6 +81,10 @@ Default endpoints:
 - OpenAPI: `http://127.0.0.1:8010/docs`
 - cpptdx: `http://127.0.0.1:8022`
 
+### Public market data
+
+The default is `TRADING_V2_MARKET_DATA_PROVIDER=public`: cpptdx, then Eastmoney/Sina fallback for China equities, Yahoo Finance Chart for US equities, and Binance Spot public data for crypto. Examples: `us_equity:XNAS:AAPL` and `crypto:BINANCE:BTCUSDT`. These sources are for quotes and paper trading only, do not require API keys, and are subject to rate limits, regional restrictions, and limited intraday history.
+
 Start the V2 frontend:
 
 ```powershell
@@ -87,6 +94,10 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. Vite proxies `/api` to port 8010.
 
+The first page is a login screen. Authentication is enabled by default: click “首次使用？创建账户” on the first launch to create the local administrator, then sign in with the username and password. Passwords are stored only as PBKDF2 hashes and login state uses an HttpOnly cookie; strategy, market, paper-account, and SSE endpoints require authentication. Set `TRADING_V2_AUTH_ENABLED=false` only for temporary test or trusted internal deployments.
+
+Use the sun/moon button in the top-right corner to switch between light and dark themes. The preference is stored locally in the browser.
+
 ## Database and strategy sessions
 
 Without database configuration, the service uses `data/trading_v2.db` and runs immediately. PostgreSQL is recommended in production:
@@ -95,7 +106,7 @@ Without database configuration, the service uses `data/trading_v2.db` and runs i
 TRADING_V2_DATABASE_URL=postgresql+psycopg2://user:password@127.0.0.1:5432/curs_trading
 ```
 
-The service currently creates `trading_sessions_v2`, `trading_messages_v2`, `trading_prompt_versions_v2`, and `candidate_signals_v2` automatically. Schema migrations will be added before live trading is enabled.
+The service automatically creates session, message, strategy-version, candidate-signal, and paper-trading tables including `paper_accounts_v2`, `paper_positions_v2`, `paper_orders_v2`, `paper_fills_v2`, and `paper_ledger_v2`. Schema migrations will be added before live trading is enabled.
 
 Once a valid strategy is resumed into the running state, the background scanner fetches market data and only evaluates bars with `is_closed=true`. One scan can also be requested manually:
 
@@ -103,7 +114,16 @@ Once a valid strategy is resumed into the running state, the background scanner 
 POST /api/v2/sessions/{session_id}/evaluate
 ```
 
-Only one candidate is stored for the same session, strategy version, instrument, timeframe, bar close, and side. Candidates are observation-only at this stage; they neither invoke a decision model nor place orders.
+Only one candidate is stored for the same session, strategy version, instrument, timeframe, bar close, and side. Observe mode only records it. Once paper mode is enabled in the UI and the strategy is running, deterministic cash, position-cap, and T+1 checks route the signal to the system Paper Broker. This is currently `rule_only`; an AI trading decision is not invoked yet.
+
+The default system account starts with CNY 1,000,000. Multiple internal accounts can also be created through the API:
+
+```http
+GET  /api/v2/paper/accounts
+POST /api/v2/paper/accounts
+POST /api/v2/paper/sessions/{session_id}/enable
+GET  /api/v2/paper/sessions/{session_id}
+```
 
 ## Model configuration
 

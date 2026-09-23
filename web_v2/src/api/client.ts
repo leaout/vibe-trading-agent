@@ -1,8 +1,10 @@
 import type {
   AgentEvent,
+  AuthUser,
   Candle,
   ChatMessage,
   ChartSignal,
+  PaperAccountDetail,
   SessionSnapshot,
   StrategyPromptVersion,
   TradingSession,
@@ -17,6 +19,7 @@ interface ApiBar {
   low: string | number;
   close: string | number;
   volume: string | number;
+  source: string;
 }
 
 interface ApiSession {
@@ -33,6 +36,9 @@ interface ApiSession {
   created_at: string;
   updated_at: string;
 }
+
+interface ApiUser { id: string; username: string; created_at: string; }
+interface ApiAuthStatus { authenticated: boolean; user?: ApiUser | null; }
 
 interface ApiMessage {
   id: string;
@@ -81,6 +87,24 @@ interface ApiEvent {
   duration_ms?: number;
 }
 
+interface ApiPaperDetail {
+  account: {
+    id: string; name: string; currency: string; initial_cash: string | number;
+    cash: string | number; market_value: string | number; total_equity: string | number;
+    realized_pnl: string | number; unrealized_pnl: string | number;
+  };
+  positions: Array<{
+    instrument: string; quantity: string | number; available_quantity: string | number;
+    average_cost: string | number; last_price: string | number;
+    market_value: string | number; unrealized_pnl: string | number;
+  }>;
+  orders: Array<{
+    id: string; signal_id: string; side: "buy" | "sell"; instrument: string; quantity: string | number;
+    price: string | number; fee: string | number; status: "filled" | "rejected";
+    rejection_reason?: string; created_at: string;
+  }>;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -94,6 +118,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init?.headers,
@@ -110,8 +135,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(`请求失败：${response.status}`, response.status, payload);
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+const mapUser = (user: ApiUser): AuthUser => ({
+  id: user.id, username: user.username, createdAt: user.created_at,
+});
 
 const formatActivity = (value: string) => new Date(value).toLocaleString("zh-CN", {
   month: "2-digit",
@@ -186,7 +216,38 @@ const mapSnapshot = (snapshot: ApiSessionSnapshot): SessionSnapshot => ({
   events: snapshot.events.map(mapEvent),
 });
 
+const mapPaperDetail = (detail: ApiPaperDetail): PaperAccountDetail => ({
+  account: {
+    id: detail.account.id, name: detail.account.name, currency: detail.account.currency,
+    initialCash: Number(detail.account.initial_cash), cash: Number(detail.account.cash),
+    marketValue: Number(detail.account.market_value), totalEquity: Number(detail.account.total_equity),
+    realizedPnl: Number(detail.account.realized_pnl), unrealizedPnl: Number(detail.account.unrealized_pnl),
+  },
+  positions: detail.positions.map((position) => ({
+    instrument: position.instrument, quantity: Number(position.quantity),
+    availableQuantity: Number(position.available_quantity), averageCost: Number(position.average_cost),
+    lastPrice: Number(position.last_price), marketValue: Number(position.market_value),
+    unrealizedPnl: Number(position.unrealized_pnl),
+  })),
+  orders: detail.orders.map((order) => ({
+    id: order.id, signalId: order.signal_id, side: order.side, instrument: order.instrument,
+    quantity: Number(order.quantity), price: Number(order.price), fee: Number(order.fee),
+    status: order.status, rejectionReason: order.rejection_reason, createdAt: order.created_at,
+  })),
+});
+
 export const apiClient = {
+  getAuthStatus: async () => {
+    const status = await request<ApiAuthStatus>("/auth/me");
+    return status.user ? mapUser(status.user) : null;
+  },
+  login: async (username: string, password: string) => mapUser(await request<ApiUser>("/auth/login", {
+    method: "POST", body: JSON.stringify({ username, password }),
+  })),
+  register: async (username: string, password: string) => mapUser(await request<ApiUser>("/auth/register", {
+    method: "POST", body: JSON.stringify({ username, password }),
+  })),
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
   getSessions: async () => (await request<ApiSession[]>("/sessions")).map(mapSession),
   createSession: async (message: string) =>
     mapSession(await request<ApiSession>("/sessions", {
@@ -199,11 +260,12 @@ export const apiClient = {
     request<Candle[]>(
       `/sessions/${encodeURIComponent(sessionId)}/candles?timeframe=${encodeURIComponent(timeframe)}`,
     ),
-  getMarketBars: async (instrument: string, timeframe: string, limit = 200) => {
+  getMarketBars: async (instrument: string, timeframe: string, limit = 200, provider = "auto") => {
     const query = new URLSearchParams({
       instrument,
       timeframe: timeframe === "1D" ? "1d" : timeframe,
       limit: String(limit),
+      provider,
     });
     const bars = await request<ApiBar[]>(`/market/bars?${query.toString()}`);
     return bars.map((bar) => ({
@@ -213,6 +275,7 @@ export const apiClient = {
       low: Number(bar.low),
       close: Number(bar.close),
       volume: Number(bar.volume),
+      source: bar.source,
     } satisfies Candle));
   },
   sendMessage: async (sessionId: string, content: string) =>
@@ -224,4 +287,11 @@ export const apiClient = {
     mapSession(await request<ApiSession>(`/sessions/${encodeURIComponent(sessionId)}/${paused ? "pause" : "resume"}`, {
       method: "POST",
     })),
+  enablePaper: (sessionId: string) => request(
+    `/paper/sessions/${encodeURIComponent(sessionId)}/enable`,
+    { method: "POST", body: JSON.stringify({}) },
+  ),
+  getPaperSession: async (sessionId: string) => mapPaperDetail(
+    await request<ApiPaperDetail>(`/paper/sessions/${encodeURIComponent(sessionId)}`),
+  ),
 };

@@ -24,6 +24,19 @@
 
 ## 2. Session 与聊天
 
+### 2.1 本地账户认证
+
+默认开启认证。第一次启动且数据库没有用户时，`POST /auth/register` 允许创建第一个管理员；之后该接口关闭。登录成功后服务端写入 HttpOnly、SameSite=Lax Cookie，客户端不需要接触 token。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `POST` | `/auth/register` | 首次创建本地管理员 |
+| `POST` | `/auth/login` | 用户名密码登录 |
+| `POST` | `/auth/logout` | 撤销当前 Cookie 会话 |
+| `GET` | `/auth/me` | 查询当前登录状态 |
+
+健康检查和 OpenAPI 根路径保持公开；行情、Session、模拟账户和业务 SSE 均需要登录。密码使用 PBKDF2-SHA256 加随机盐存储，服务端不记录明文。
+
 当前已实现 `POST/GET /sessions`、`GET /sessions/{id}`、`POST /messages`、`POST /pause`、`POST /resume`、`POST /evaluate` 和 `GET /events`。表中其余接口为后续契约。
 
 | 方法 | 路径 | 用途 |
@@ -123,6 +136,8 @@ K 线查询示例：
 GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&to=...
 ```
 
+公开行情示例：`US_EQUITY:XNAS:AAPL`、`CRYPTO:BINANCE:BTCUSDT`。默认 Provider 为 `public`，也可设置 `TRADING_V2_MARKET_DATA_PROVIDER=cpptdx` 强制只使用 cpptdx。
+
 当前返回的每根 Bar 包含 `source` 和 `is_closed`；后续数据路由层会增加 `quality`。图表默认只用闭合 Bar 计算指标，最后一根未闭合 Bar 仅用于视觉展示。
 
 标注响应：
@@ -156,6 +171,18 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 面向 UI 的接口返回必要摘要；模型原始响应仅在诊断权限下可见，并在返回前脱敏。
 
 ## 7. 审批、订单与持仓
+
+当前已经实现系统内部模拟账户的最小接口：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/paper/accounts` | 查询系统模拟账户 |
+| `POST` | `/paper/accounts` | 创建内部模拟账户 |
+| `GET` | `/paper/accounts/{id}` | 账户、持仓、委托与成交快照 |
+| `POST` | `/paper/sessions/{id}/enable` | 绑定账户并将 Session 切换为 paper |
+| `GET` | `/paper/sessions/{id}` | 查询 Session 绑定的模拟账户 |
+
+当前只模拟市价立即成交。BUY 使用策略 `max_position_pct` 作为该账户该标的的总仓位上限；A 股按 100 股取整并执行 T+1。一个 `signal_id` 最多生成一个模拟委托。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |

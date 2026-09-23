@@ -40,6 +40,8 @@ class AppSettings(BaseSettings):
     cpptdx_base_url: str = "http://127.0.0.1:8022"
     cpptdx_timeout_seconds: float = Field(default=3.0, gt=0, le=60)
     cpptdx_snapshot_interval_ms: int = Field(default=1_000, ge=200, le=60_000)
+    market_data_provider: str = "public"
+    market_data_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
     database_url: str = "sqlite:///data/trading_v2.db"
     model_enabled: bool = False
     model_provider: str = "deepseek"
@@ -50,6 +52,8 @@ class AppSettings(BaseSettings):
     model_max_tokens: int = Field(default=1_500, ge=256, le=16_000)
     signal_poll_interval_seconds: float = Field(default=5.0, ge=1, le=300)
     signal_bar_limit: int = Field(default=200, ge=30, le=800)
+    auth_enabled: bool = True
+    auth_session_ttl_hours: int = Field(default=168, ge=1, le=720)
 
     @field_validator("api_prefix")
     @classmethod
@@ -82,6 +86,14 @@ class AppSettings(BaseSettings):
         allowed = {"openai", "deepseek", "anthropic", "openai_compatible"}
         if normalized not in allowed:
             raise ValueError(f"model_provider must be one of: {', '.join(sorted(allowed))}")
+        return normalized
+
+    @field_validator("market_data_provider")
+    @classmethod
+    def validate_market_data_provider(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"public", "cpptdx"}:
+            raise ValueError("market_data_provider must be public or cpptdx")
         return normalized
 
     @field_validator("model_name", "model_api_key_env")

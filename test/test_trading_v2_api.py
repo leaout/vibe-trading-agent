@@ -62,6 +62,7 @@ class TradingV2ApiTest(unittest.TestCase):
             service_version="test",
             trading_mode="observe",
             database_url="sqlite:///:memory:",
+            auth_enabled=False,
             _env_file=None,
         )
 

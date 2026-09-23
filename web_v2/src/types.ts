@@ -2,6 +2,12 @@ export type AgentMode = "observe" | "paper" | "approval" | "live";
 export type SessionStatus = "running" | "paused" | "draft" | "attention";
 export type SignalSide = "BUY" | "SELL" | "HOLD";
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
 export interface TradingSession {
   id: string;
   name: string;
@@ -23,6 +29,7 @@ export interface Candle {
   low: number;
   close: number;
   volume: number;
+  source?: string;
 }
 
 export interface ChartSignal {
@@ -70,4 +77,39 @@ export interface SessionSnapshot {
   messages: ChatMessage[];
   promptVersions: StrategyPromptVersion[];
   events: AgentEvent[];
+}
+
+export interface PaperAccountDetail {
+  account: {
+    id: string;
+    name: string;
+    currency: string;
+    initialCash: number;
+    cash: number;
+    marketValue: number;
+    totalEquity: number;
+    realizedPnl: number;
+    unrealizedPnl: number;
+  };
+  positions: Array<{
+    instrument: string;
+    quantity: number;
+    availableQuantity: number;
+    averageCost: number;
+    lastPrice: number;
+    marketValue: number;
+    unrealizedPnl: number;
+  }>;
+  orders: Array<{
+    id: string;
+    signalId: string;
+    side: "buy" | "sell";
+    instrument: string;
+    quantity: number;
+    price: number;
+    fee: number;
+    status: "filled" | "rejected";
+    rejectionReason?: string;
+    createdAt: string;
+  }>;
 }

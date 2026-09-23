@@ -75,7 +75,7 @@ Session 不直接消费 Tick，也不提交订单。
 
 行情源统一输出 `Tick`、`Bar`、`MarketSnapshot` 和 `MarketStatus`。
 
-- `CppTdxMarketDataProvider`：A 股分钟级 K 线、批量快照和历史补齐。通过 HTTP 访问独立 cpptdx 服务。
+- `PublicMarketDataProvider`：按资产类别路由公开行情；A 股优先 cpptdx、失败回退东方财富，美股使用 Yahoo Chart，Crypto 使用 Binance Spot 公共接口。统一输出分钟 K 线和快照。
 - 后续实时 Provider：按市场接入稳定数据源，统一输出标准 Tick、Bar 和健康状态。
 - `MarketRouter`：根据配置选主源和备用源；切换前检查时间戳、交易日和数据连续性。
 - `BarAggregator`：从标准 Tick 生成闭合分钟 K 线；只将闭合 Bar 送入信号引擎。
@@ -188,7 +188,7 @@ cpptdx service
 3. 建立 MarketRouter，并按市场接入实时行情 Provider 与主备切换。
 4. 完成 Session 聊天、策略编译、版本预览和发布。
 5. 完成候选信号、模型决策和图表标注。
-6. 完成 Paper Broker、风控、订单状态机和事件时间线。
+6. 完成 Paper Broker 的限价撮合、风控、订单状态机和事件时间线。
 7. 增加 approval，最后小额度开放 live 与 Broker 对账。
 
 ## 10. 当前实现切片（2026-09）
@@ -204,4 +204,4 @@ cpptdx service
 - 信号经 SSE 推送，Web 将真实候选信号叠加到 K 线并显示在决策链中。
 - 暂停会停止新信号；当前信号尚不会调用决策模型或产生订单。
 
-下一切片是信号触发的模型决策、确定性风控与 Paper Broker。
+下一切片是信号触发的模型决策、限价撮合、部分成交和完整审计事件账本。

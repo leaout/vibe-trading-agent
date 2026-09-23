@@ -98,6 +98,15 @@ class SessionRepository:
             record = db.get(SessionRecord, session_id)
             return self._session(record) if record else None
 
+    def set_mode(self, session_id: str, mode: TradingMode) -> TradingSession | None:
+        with self.database.sessions.begin() as db:
+            record = db.get(SessionRecord, session_id)
+            if record is None:
+                return None
+            record.mode = mode.value
+            record.updated_at = utc_now()
+        return self.get_session(session_id)
+
     def get_snapshot(self, session_id: str) -> SessionSnapshot | None:
         with self.database.sessions() as db:
             session = db.get(SessionRecord, session_id)

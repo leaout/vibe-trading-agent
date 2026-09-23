@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from trading_v2.agent.compiler import StrategyCompiler
 from trading_v2.agent.models import StrategySpec
-from trading_v2.domain.enums import AssetClass
+from trading_v2.domain.enums import AssetClass, TradingMode
 from trading_v2.events import InMemoryEventStream
 from trading_v2.sessions.models import (
     ChatMessage,
@@ -39,6 +39,14 @@ class TradingSessionService:
 
     async def list_sessions(self) -> list[TradingSession]:
         return await asyncio.to_thread(self.repository.list_sessions)
+
+    async def get_session(self, session_id: str) -> TradingSession | None:
+        return await asyncio.to_thread(self.repository.get_session, session_id)
+
+    async def set_mode(
+        self, session_id: str, mode: TradingMode,
+    ) -> TradingSession | None:
+        return await asyncio.to_thread(self.repository.set_mode, session_id, mode)
 
     async def get_snapshot(self, session_id: str) -> SessionSnapshot | None:
         snapshot = await asyncio.to_thread(self.repository.get_snapshot, session_id)

@@ -15,7 +15,7 @@ Curs 正在重构为一个面向多市场的 Trading Agent：每个策略都是�
 - `observe / paper / live` 运行模式基础以及信号、决策、订单状态模型。
 - React + TypeScript 工作台：策略会话、K 线、信号覆盖层、聊天、Prompt 版本和决策时间线。
 - cpptdx HTTP 行情适配器：A 股快照、分钟 K 线、健康检查和数据新鲜度。
-- cpptdx 不可用时明确显示 `DEMO DATA`，Broker 和模型未配置时不会伪装为已连接。
+- 公开行情不可用时明确显示“未连接”，不会用测试 K 线伪装实时行情。
 - 持久化策略会话、聊天消息和不可覆盖的 Prompt/策略版本；开发环境默认 SQLite，生产可切换 PostgreSQL。
 - OpenAI、DeepSeek、Claude 及 OpenAI-compatible 模型适配器，API Key 只从环境变量读取。
 - “一句话创建策略”会编译为严格白名单 JSON Schema；模型未配置或输出不合法时仅保存草稿。
@@ -23,12 +23,15 @@ Curs 正在重构为一个面向多市场的 Trading Agent：每个策略都是�
 - 闭合 K 线信号引擎：MA/EMA/RSI/MACD/ATR/VWAP/量比等白名单指标，支持比较与上穿/下穿规则。
 - 运行中的 Session 每 5 秒检查最新闭合 K 线；候选信号持久化并按策略版本与 K 线去重。
 - 候选信号通过 SSE 实时更新，并叠加到 K 线图和决策链时间线。
+- 系统内置 Paper Broker：首次启动自动创建 100 万 CNY 模拟账户，可绑定策略 Session。
+- 模拟盘支持市价成交、资金账本、持仓、委托、成交、费用、信号幂等、仓位上限和 A 股 T+1。
+- Web 可一键启用模拟盘，并实时显示总资产、现金、持仓盈亏、最近委托和成交/拒绝事件。
 
 尚未实现：
 
-- Paper Broker、东方财富 V2 Broker Adapter 和真实自动下单。
-- 多市场实时行情 Provider 与 cpptdx 主备切换。
-- 候选信号后的模型交易决策、确定性风控、Paper Broker 和完整审计事件账本。
+- 限价撮合、部分成交、可配置费用、东方财富 V2 Broker Adapter 和真实自动下单。
+- 多市场公开行情 Provider：A 股 cpptdx/东方财富回退，美股 Yahoo Finance，Crypto Binance。
+- 候选信号后的模型交易决策、限价撮合和完整审计事件账本。
 
 因此当前版本用于架构和界面联调，不能用于真实自动交易。
 
@@ -78,6 +81,12 @@ cd E:\pro\curs-trading-agent
 - OpenAPI：`http://127.0.0.1:8010/docs`
 - cpptdx：`http://127.0.0.1:8022`
 
+### 公开行情源
+
+默认 `TRADING_V2_MARKET_DATA_PROVIDER=public`。A 股优先 cpptdx，失败后依次回退东方财富和新浪；美股使用 Yahoo Finance Chart；加密货币使用 Binance Spot 公共行情。示例标的：`us_equity:XNAS:AAPL`、`crypto:BINANCE:BTCUSDT`。
+
+这些接口只用于行情和模拟盘，不需要 API Key，也不承担真实下单；公开接口存在限流、地域和历史窗口限制。
+
 启动 V2 前端：
 
 ```powershell
@@ -87,6 +96,10 @@ npm run dev
 
 打开 `http://127.0.0.1:5173`。Vite 会将 `/api` 代理到 8010 端口。
 
+首次打开页面会进入登录页。系统默认开启认证：第一次使用时点击“首次使用？创建账户”创建本地管理员，之后使用用户名密码登录。密码只保存为 PBKDF2 哈希，登录状态使用 HttpOnly Cookie；策略、行情、模拟账户和 SSE 接口均需要登录。测试或内网临时部署可设置 `TRADING_V2_AUTH_ENABLED=false`，生产环境不建议关闭。
+
+工作台右上角的太阳/月亮按钮可以切换亮色和暗色主题，选择会保存在浏览器本地。
+
 ## 数据库和策略会话
 
 不配置数据库时使用 `data/trading_v2.db`，可立即运行。生产环境建议 PostgreSQL：
@@ -95,7 +108,7 @@ npm run dev
 TRADING_V2_DATABASE_URL=postgresql+psycopg2://user:password@127.0.0.1:5432/curs_trading
 ```
 
-当前会自动创建 `trading_sessions_v2`、`trading_messages_v2`、`trading_prompt_versions_v2` 和 `candidate_signals_v2`。Schema 迁移工具将在进入实盘阶段前补充。
+当前会自动创建 Session、消息、策略版本、候选信号，以及 `paper_accounts_v2`、`paper_positions_v2`、`paper_orders_v2`、`paper_fills_v2`、`paper_ledger_v2` 等模拟盘表。Schema 迁移工具将在进入实盘阶段前补充。
 
 有效策略恢复为“运行中”后，后台会定时获取行情，只处理 `is_closed=true` 的 K 线。也可手动触发一次评估：
 
@@ -103,7 +116,16 @@ TRADING_V2_DATABASE_URL=postgresql+psycopg2://user:password@127.0.0.1:5432/curs_
 POST /api/v2/sessions/{session_id}/evaluate
 ```
 
-相同 Session、策略版本、标的、周期、K 线结束时间和方向只保存一个候选信号。候选信号目前仅用于观察，不会调用模型或下单。
+相同 Session、策略版本、标的、周期、K 线结束时间和方向只保存一个候选信号。观察模式只记录信号；在页面启用模拟盘并启动策略后，信号会经过确定性仓位/T+1/资金检查后进入系统 Paper Broker。当前是 `rule_only`，尚未调用模型做交易决策。
+
+系统默认模拟账户初始资金为 1,000,000 CNY。也可通过 API 创建多个内部账户：
+
+```http
+GET  /api/v2/paper/accounts
+POST /api/v2/paper/accounts
+POST /api/v2/paper/sessions/{session_id}/enable
+GET  /api/v2/paper/sessions/{session_id}
+```
 
 ## 大模型配置
 

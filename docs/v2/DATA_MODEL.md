@@ -151,6 +151,8 @@ QUEUED → CONTEXT_READY → MODEL_RUNNING → DECIDED
 
 ## 5. 风控与执行
 
+当前 Paper Broker 已落地以下表：`paper_accounts_v2`、`paper_session_bindings_v2`、`paper_positions_v2`、`paper_orders_v2`、`paper_fills_v2` 和 `paper_ledger_v2`。账户是系统内部资源，不需要外部券商账号。资金变动写入只追加账本，委托以 `signal_id` 唯一约束防止重复扣款。
+
 ### 5.1 `risk_decisions`
 
 保存 `approved/rejected`、逐条规则结果、账户快照 ID、行情时间、策略风险版本和最终允许的数量/价格。模型建议数量不直接成为订单数量，由 Allocation 与 Risk 计算。

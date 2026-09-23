@@ -3,15 +3,26 @@ import { useEffect, useState } from "react";
 import { apiClient } from "./api/client";
 import { SessionEventStream } from "./api/sse";
 import { CandlestickChart } from "./components/CandlestickChart";
+import { AuthScreen } from "./components/AuthScreen";
 import { ChatPanel } from "./components/ChatPanel";
 import { EventTimeline } from "./components/EventTimeline";
+import { PaperAccountPanel } from "./components/PaperAccountPanel";
 import { SessionSidebar } from "./components/SessionSidebar";
-import { createMockCandles } from "./mockData";
-import type { AgentEvent, ChartSignal, ChatMessage, StrategyPromptVersion, TradingSession } from "./types";
+import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
 
 const timeframes = ["1m", "5m", "15m", "30m", "1h", "1D"];
+const marketProviders = [
+  ["auto", "自动路由"],
+  ["public", "公开行情"],
+  ["cpptdx", "cpptdx（A股）"],
+] as const;
 
 function App() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [theme, setTheme] = useState<"dark" | "light">(() => (
+    localStorage.getItem("vibe-theme") === "light" ? "light" : "dark"
+  ));
   const [sessions, setSessions] = useState<TradingSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [timeframe, setTimeframe] = useState("5m");
@@ -19,6 +30,7 @@ function App() {
   const [versions, setVersions] = useState<StrategyPromptVersion[]>([]);
   const [signals, setSignals] = useState<ChartSignal[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [paper, setPaper] = useState<PaperAccountDetail | null>(null);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -26,12 +38,48 @@ function App() {
   const [createPrompt, setCreatePrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [chartLayer, setChartLayer] = useState<"signals" | "positions">("signals");
-  const [candles, setCandles] = useState(createMockCandles);
-  const [usingDemoData, setUsingDemoData] = useState(true);
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [marketSource, setMarketSource] = useState("");
+  const [marketError, setMarketError] = useState("");
+  const [marketProvider, setMarketProvider] = useState(() => localStorage.getItem("vibe-market-provider") ?? "auto");
   const selected = sessions.find((session) => session.id === selectedId);
   const lastCandle = candles[candles.length - 1];
   const previous = candles[candles.length - 2];
-  const change = previous ? ((lastCandle.close - previous.close) / previous.close) * 100 : 0;
+  const change = previous && lastCandle ? ((lastCandle.close - previous.close) / previous.close) * 100 : 0;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("vibe-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("vibe-market-provider", marketProvider);
+  }, [marketProvider]);
+
+  useEffect(() => {
+    apiClient.getAuthStatus()
+      .then(setAuthUser)
+      .catch(() => setAuthUser(null))
+      .finally(() => setAuthLoading(false));
+  }, []);
+  const displayedSignals = signals.map((signal) => {
+    const order = paper?.orders.find((item) => item.signalId === signal.id);
+    return order
+      ? { ...signal, state: order.status === "filled" ? "filled" as const : "rejected" as const }
+      : signal;
+  });
+  const paperEvents: AgentEvent[] = (paper?.orders ?? []).slice(0, 5).reverse().map((order) => ({
+    id: `paper-${order.id}`,
+    timestamp: new Date(order.createdAt).toLocaleTimeString("zh-CN", {
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }),
+    type: order.status === "filled" ? "order" : "risk",
+    title: order.status === "filled" ? "模拟成交" : "模拟风控拒绝",
+    detail: order.status === "filled"
+      ? `${order.side.toUpperCase()} ${order.quantity} @ ${order.price.toFixed(2)}，费用 ${order.fee.toFixed(2)}`
+      : (order.rejectionReason ?? "订单未通过确定性检查"),
+    state: order.status === "filled" ? "success" : "warning",
+  }));
 
   const loadSessions = async () => {
     const remoteSessions = await apiClient.getSessions();
@@ -42,10 +90,11 @@ function App() {
   };
 
   useEffect(() => {
+    if (!authUser) return;
     loadSessions()
       .catch(() => setError("无法连接 V2 API，请确认后端已启动。"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [authUser]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -53,6 +102,7 @@ function App() {
       setVersions([]);
       setSignals([]);
       setEvents([]);
+      setPaper(null);
       return;
     }
     let cancelled = false;
@@ -66,13 +116,15 @@ function App() {
     }).catch(() => {
       if (!cancelled) setError("会话详情加载失败，请刷新后重试。");
     });
+    apiClient.getPaperSession(selectedId).then(setPaper).catch(() => setPaper(null));
     return () => { cancelled = true; };
   }, [selectedId]);
 
   useEffect(() => {
     if (!selected || !selected.venue || !selected.symbol) {
-      setCandles(createMockCandles());
-      setUsingDemoData(true);
+      setCandles([]);
+      setMarketSource("");
+      setMarketError("");
       return;
     }
     let cancelled = false;
@@ -80,15 +132,18 @@ function App() {
         `${selected.assetClass}:${selected.venue}:${selected.symbol}`,
         timeframe,
         120,
+        marketProvider,
       ).then((bars) => {
-        if (!cancelled && bars.length >= 2) {
+        if (!cancelled && bars.length >= 1) {
           setCandles(bars);
-          setUsingDemoData(false);
+          setMarketSource(bars[bars.length - 1].source ?? "public");
+          setMarketError("");
         }
-      }).catch(() => {
+      }).catch((reason: unknown) => {
         if (!cancelled) {
-          setCandles(createMockCandles());
-          setUsingDemoData(true);
+          setCandles([]);
+          setMarketSource("");
+          setMarketError(reason instanceof Error ? reason.message : "公开行情暂不可用");
         }
       });
     refreshBars();
@@ -97,7 +152,7 @@ function App() {
       cancelled = true;
       window.clearInterval(refreshTimer);
     };
-  }, [selected, timeframe]);
+  }, [selected, timeframe, marketProvider]);
 
   useEffect(() => {
     if (!selectedId || import.meta.env.VITE_ENABLE_SSE === "false") return undefined;
@@ -111,6 +166,7 @@ function App() {
         setSignals(snapshot.signals);
         setEvents(snapshot.events);
       }).catch(() => undefined);
+      apiClient.getPaperSession(selectedId).then(setPaper).catch(() => setPaper(null));
     });
     return () => {
       unsubscribe();
@@ -145,6 +201,26 @@ function App() {
       setError("策略状态更新失败。");
     }
   };
+
+  const enablePaper = async () => {
+    if (!selected) return;
+    try {
+      await apiClient.enablePaper(selected.id);
+      await loadSessions();
+      setPaper(await apiClient.getPaperSession(selected.id));
+    } catch {
+      setError("模拟账户启用失败，请确认后端已启动。");
+    }
+  };
+
+  const logout = async () => {
+    await apiClient.logout().catch(() => undefined);
+    setAuthUser(null);
+    setSelectedId("");
+  };
+
+  if (authLoading) return <main className="auth-screen"><div className="auth-card"><p>正在检查登录状态…</p></div></main>;
+  if (!authUser) return <AuthScreen onAuthenticated={setAuthUser} />;
 
   const sendMessage = async (content: string) => {
     if (!selected) return;
@@ -196,9 +272,12 @@ function App() {
         </div>
         <div className="top-actions">
           <div className="portfolio-summary">
-            <span>交易权限<strong>仅观察</strong></span>
-            <span>Broker<strong>未接入</strong></span>
+            <span>交易权限<strong>{selected?.mode === "paper" ? "模拟交易" : "仅观察"}</strong></span>
+            <span>Broker<strong>{paper ? "SYSTEM PAPER" : "未启用"}</strong></span>
           </div>
+          {selected && selected.mode !== "paper" && <button className="paper-enable-button" onClick={enablePaper}>启用模拟盘</button>}
+          <button className="theme-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="切换主题">{theme === "dark" ? "☼" : "☾"}</button>
+          <button className="user-button" onClick={logout} title="退出登录">{authUser.username}</button>
           {selected && <button className={`pause-button ${selected.status !== "running" ? "resume" : ""}`} onClick={togglePause}>
             {selected.status === "draft" ? "▶ 启动策略" : selected.status === "paused" ? "▶ 继续运行" : "Ⅱ 暂停策略"}
           </button>}
@@ -209,7 +288,7 @@ function App() {
         <SessionSidebar
           sessions={sessions}
           selectedId={selectedId}
-          marketConnected={!usingDemoData}
+          marketSource={marketSource}
           onCreate={() => setShowCreate(true)}
           onSelect={setSelectedId}
         />
@@ -229,23 +308,26 @@ function App() {
               <div className="market-toolbar">
                 <div className="instrument">
                   <div className="instrument-symbol"><strong>{selected.symbol}</strong><span>{selected.venue}</span></div>
-                  <div><h2>{selected.name}</h2><small>{usingDemoData ? "演示行情 · cpptdx 未连接" : "cpptdx 行情 · 分钟级"}</small></div>
+                  <div><h2>{selected.name}</h2><small className={marketError ? "market-error" : ""}>{marketSource ? `${marketSource} 公开行情 · ${timeframe}` : (marketError || "等待公开行情")}</small></div>
                 </div>
                 <div className="quote">
-                  <strong>{lastCandle.close.toFixed(2)}</strong>
-                  <span className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</span>
+                  <strong>{lastCandle ? lastCandle.close.toFixed(2) : "—"}</strong>
+                  <span className={change >= 0 ? "positive" : "negative"}>{lastCandle ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : "暂无变化"}</span>
                 </div>
                 <div className="ohlc">
-                  <span>开 <b>{lastCandle.open.toFixed(2)}</b></span>
-                  <span>高 <b className="positive">{lastCandle.high.toFixed(2)}</b></span>
-                  <span>低 <b className="negative">{lastCandle.low.toFixed(2)}</b></span>
-                  <span>量 <b>{lastCandle.volume.toFixed(0)}</b></span>
+                  <span>开 <b>{lastCandle ? lastCandle.open.toFixed(2) : "—"}</b></span>
+                  <span>高 <b className="positive">{lastCandle ? lastCandle.high.toFixed(2) : "—"}</b></span>
+                  <span>低 <b className="negative">{lastCandle ? lastCandle.low.toFixed(2) : "—"}</b></span>
+                  <span>量 <b>{lastCandle ? lastCandle.volume.toFixed(0) : "—"}</b></span>
                 </div>
                 <div className="timeframe-switch">
                   {timeframes.map((item) => (
                     <button className={timeframe === item ? "active" : ""} key={item} onClick={() => setTimeframe(item)}>{item}</button>
                   ))}
                 </div>
+                <select className="market-provider-select" value={marketProvider} onChange={(event) => setMarketProvider(event.target.value)} aria-label="选择行情源">
+                  {marketProviders.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
               </div>
 
               <div className="chart-legend">
@@ -257,19 +339,19 @@ function App() {
                 </div>
               </div>
               <div className="chart-stage">
-                {usingDemoData && <span className="demo-watermark">DEMO DATA</span>}
-                <CandlestickChart candles={candles} signals={chartLayer === "signals" ? signals : []} />
+                <CandlestickChart candles={candles} signals={chartLayer === "signals" ? displayedSignals : []} />
               </div>
 
               <div className="chart-stats">
-                <span><small>当前仓位</small><strong>未接入</strong></span>
-                <span><small>持仓成本</small><strong>—</strong></span>
-                <span><small>浮动盈亏</small><strong>—</strong></span>
+                <span><small>当前仓位</small><strong>{paper ? `${paper.positions.length} 个标的` : "未启用"}</strong></span>
+                <span><small>持仓成本</small><strong>{paper?.positions[0] ? paper.positions[0].averageCost.toFixed(2) : "—"}</strong></span>
+                <span><small>浮动盈亏</small><strong className={(paper?.account.unrealizedPnl ?? 0) >= 0 ? "positive" : "negative"}>{paper ? paper.account.unrealizedPnl.toFixed(2) : "—"}</strong></span>
                 <span><small>策略版本</small><strong>v{selected.promptVersion}</strong></span>
-                <span><small>执行权限</small><strong>仅观察</strong></span>
+                <span><small>执行权限</small><strong>{selected.mode === "paper" ? "模拟盘" : "仅观察"}</strong></span>
               </div>
+              {paper && <PaperAccountPanel detail={paper} />}
             </section>
-            <EventTimeline events={events} />
+            <EventTimeline events={[...events, ...paperEvents].slice(-10)} />
           </div>
 
           <ChatPanel messages={messages} versions={versions} busy={sending} onSend={sendMessage} />

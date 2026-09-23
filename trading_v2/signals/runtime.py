@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from trading_v2.agent.models import StrategySpec
 from trading_v2.domain.enums import AssetClass
@@ -13,6 +14,9 @@ from trading_v2.market.provider import MarketDataProvider
 from trading_v2.sessions.service import TradingSessionService
 from trading_v2.signals.evaluator import StrategyEvaluator
 from trading_v2.signals.repository import SignalRepository
+
+if TYPE_CHECKING:
+    from trading_v2.paper.service import PaperTradingService
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ class SignalRuntime:
         events: InMemoryEventStream,
         poll_interval_seconds: float = 5,
         bar_limit: int = 200,
+        paper: "PaperTradingService | None" = None,
     ) -> None:
         self.sessions = sessions
         self.market = market
@@ -34,6 +39,7 @@ class SignalRuntime:
         self.poll_interval_seconds = poll_interval_seconds
         self.bar_limit = bar_limit
         self.evaluator = StrategyEvaluator()
+        self.paper = paper
         self._task: asyncio.Task | None = None
         self._scan_lock = asyncio.Lock()
 
@@ -75,6 +81,8 @@ class SignalRuntime:
             "strategy_version": version, "side": signal.side.value,
             "bar_time": signal.bar_time.isoformat(), "reason": signal.reason,
         })
+        if self.paper is not None:
+            await self.paper.process_signal(session_id, strategy, signal)
         return signal
 
     async def _run(self) -> None:
