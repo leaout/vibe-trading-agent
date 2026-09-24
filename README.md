@@ -1,135 +1,74 @@
-# Curs Vibe Trading
+# Vibe Trading Agent
 
-[English Version](README_EN.md) | 中文版
+[English](README_EN.md) | 中文
 
-Curs 正在重构为一个面向多市场的 Trading Agent：每个策略都是一个长期大模型对话 Session，用户通过聊天创建和修改策略，交易信号、模型决策、风控与订单事件叠加在 K 线和时间线上。
+Vibe Trading Agent 是一个面向 A 股、美股和加密货币的多市场交易 Agent。每个策略都是一个长期会话：用户用自然语言创建和修改策略，系统持续读取行情，在闭合 K 线上生成候选信号，再由大模型结合近期财经资讯复核，最终交给确定性风控和系统模拟账户执行。
 
-旧 Flask 页面、`run.py` 服务入口、第一代服务装配层和已停用的交易终端接入已经移除。V2 与旧架构隔离，仅保留可迁移的东方财富 Broker、行情、数据库和数据采集能力。
+> 当前仅支持观察模式和模拟交易，不支持真实自动下单。
 
-## 当前里程碑
+## 已实现
 
-已经实现：
+- React + TypeScript 工作台：K 线、信号标记、策略聊天、Prompt 版本、决策事件和亮/暗主题。
+- FastAPI 服务：登录认证、策略 Session、SSE 实时事件、行情、资讯、模型决策和模拟账户。
+- 多市场公开行情：A 股使用 cpptdx/东方财富/新浪，美股使用 Yahoo Finance，加密货币使用 Binance。
+- 分钟、小时、日、周、月、年及全部历史周期。
+- DeepSeek、OpenAI、Claude 和 OpenAI-compatible 模型。
+- 系统 Paper Broker：资金、持仓、委托、成交、费用、仓位限制、信号幂等和 A 股 T+1。
+- 财经资讯：A 股东方财富、美股 Yahoo Finance、加密货币 Binance 公告。
 
-- 独立 FastAPI V2 控制面、健康检查、OpenAPI 和有界 SSE 事件流。
-- 多市场领域模型：A 股、美股、加密货币和外汇。
-- `observe / paper / live` 运行模式基础以及信号、决策、订单状态模型。
-- React + TypeScript 工作台：策略会话、K 线、信号覆盖层、聊天、Prompt 版本和决策时间线。
-- cpptdx HTTP 行情适配器：A 股快照、分钟 K 线、健康检查和数据新鲜度。
-- 公开行情不可用时明确显示“未连接”，不会用测试 K 线伪装实时行情。
-- 持久化策略会话、聊天消息和不可覆盖的 Prompt/策略版本；开发环境默认 SQLite，生产可切换 PostgreSQL。
-- OpenAI、DeepSeek、Claude 及 OpenAI-compatible 模型适配器，API Key 只从环境变量读取。
-- “一句话创建策略”会编译为严格白名单 JSON Schema；模型未配置或输出不合法时仅保存草稿。
-- Web 工作台已连接真实 Session API，可创建会话、聊天修改、查看版本并暂停/恢复。
-- 闭合 K 线信号引擎：MA/EMA/RSI/MACD/ATR/VWAP/量比等白名单指标，支持比较与上穿/下穿规则。
-- 运行中的 Session 每 5 秒检查最新闭合 K 线；候选信号持久化并按策略版本与 K 线去重。
-- 候选信号通过 SSE 实时更新，并叠加到 K 线图和决策链时间线。
-- 系统内置 Paper Broker：首次启动自动创建 100 万 CNY 模拟账户，可绑定策略 Session。
-- 模拟盘支持市价成交、资金账本、持仓、委托、成交、费用、信号幂等、仓位上限和 A 股 T+1。
-- Web 可一键启用模拟盘，并实时显示总资产、现金、持仓盈亏、最近委托和成交/拒绝事件。
-
-尚未实现：
-
-- 限价撮合、部分成交、可配置费用、东方财富 V2 Broker Adapter 和真实自动下单。
-- 多市场公开行情 Provider：A 股 cpptdx/东方财富回退，美股 Yahoo Finance，Crypto Binance。
-- 候选信号后的模型交易决策、限价撮合和完整审计事件账本。
-
-因此当前版本用于架构和界面联调，不能用于真实自动交易。
-
-## 目录
+## 决策流程
 
 ```text
-trading_v2/       # 独立 FastAPI、领域模型、事件流、行情接口
-web_v2/           # React + TypeScript Vibe Trading 工作台
-docs/v2/          # V2 架构、数据模型、API 和交易生命周期
-curs/broker/      # 保留的东方财富 Broker 能力
-curs/collection/  # 保留的数据采集能力
-data_collection/  # 每日热点数据采集与导入
-test/             # V2 与保留模块测试
+自然语言策略
+  → 受约束的策略版本
+  → 闭合 K 线与技术指标
+  → 候选 BUY / SELL 信号
+  → 大模型结合近期资讯输出 BUY / SELL / HOLD
+  → 确定性资金、仓位和 T+1 检查
+  → 模拟账户成交或拒绝
 ```
 
-## 安装
+资讯按 Session 标的订阅、持久化并去重。候选信号出现时，系统默认读取该标的最近 48 小时最多 8 条资讯作为临时上下文。资讯不会写入普通聊天历史，也不会单独触发下单。模型无权决定仓位、绕过风控或调用 Broker；调用失败、超时、低置信度或输出无效时统一降级为 `HOLD`。
 
-后端：
+## 快速开始
+
+要求：Python 3.10+、Node.js 20+。
 
 ```powershell
 cd E:\pro\curs-trading-agent
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-v2.txt
 Copy-Item .env.v2.example .env
-```
 
-前端：
-
-```powershell
-cd E:\pro\curs-trading-agent\web_v2
+cd web_v2
 npm install
 ```
 
-敏感配置必须放在 `config.local.yml`、环境变量或密钥服务中，不要提交 API Key、Broker 密码或会话文件。
-
-## 启动
-
-启动 V2 后端：
+启动后端：
 
 ```powershell
 cd E:\pro\curs-trading-agent
 .\.venv\Scripts\python.exe -m trading_v2
 ```
 
-默认地址：
-
-- API：`http://127.0.0.1:8010/api/v2`
-- OpenAPI：`http://127.0.0.1:8010/docs`
-- cpptdx：`http://127.0.0.1:8022`
-
-### 公开行情源
-
-默认 `TRADING_V2_MARKET_DATA_PROVIDER=public`。A 股优先 cpptdx，失败后依次回退东方财富和新浪；美股使用 Yahoo Finance Chart；加密货币使用 Binance Spot 公共行情。示例标的：`us_equity:XNAS:AAPL`、`crypto:BINANCE:BTCUSDT`。
-
-这些接口只用于行情和模拟盘，不需要 API Key，也不承担真实下单；图表支持分钟、小时、日、周、月、年和全部历史视图。公开接口存在限流、地域和历史窗口限制。
-
-启动 V2 前端：
+启动前端：
 
 ```powershell
 cd E:\pro\curs-trading-agent\web_v2
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。Vite 会将 `/api` 代理到 8010 端口。
+访问地址：
 
-首次打开页面会进入登录页。系统默认开启认证：第一次使用时点击“首次使用？创建账户”创建本地管理员，之后使用用户名密码登录。密码只保存为 PBKDF2 哈希，登录状态使用 HttpOnly Cookie；策略、行情、模拟账户和 SSE 接口均需要登录。测试或内网临时部署可设置 `TRADING_V2_AUTH_ENABLED=false`，生产环境不建议关闭。
+- Web：`http://127.0.0.1:5173`
+- API：`http://127.0.0.1:8010/api/v2`
+- OpenAPI：`http://127.0.0.1:8010/docs`
 
-工作台右上角的太阳/月亮按钮可以切换亮色和暗色主题，选择会保存在浏览器本地。
+首次打开 Web 时创建本地管理员账户。密码使用 PBKDF2 哈希保存，登录状态使用 HttpOnly Cookie。不要将 `.env`、API Key、Broker 密码或 Session 文件提交到 Git。
 
-## 数据库和策略会话
+## 模型配置
 
-不配置数据库时使用 `data/trading_v2.db`，可立即运行。生产环境建议 PostgreSQL：
-
-```dotenv
-TRADING_V2_DATABASE_URL=postgresql+psycopg2://user:password@127.0.0.1:5432/curs_trading
-```
-
-当前会自动创建 Session、消息、策略版本、候选信号，以及 `paper_accounts_v2`、`paper_positions_v2`、`paper_orders_v2`、`paper_fills_v2`、`paper_ledger_v2` 等模拟盘表。Schema 迁移工具将在进入实盘阶段前补充。
-
-有效策略恢复为“运行中”后，后台会定时获取行情，只处理 `is_closed=true` 的 K 线。也可手动触发一次评估：
-
-```http
-POST /api/v2/sessions/{session_id}/evaluate
-```
-
-相同 Session、策略版本、标的、周期、K 线结束时间和方向只保存一个候选信号。观察模式只记录信号；在页面启用模拟盘并启动策略后，信号会经过确定性仓位/T+1/资金检查后进入系统 Paper Broker。当前是 `rule_only`，尚未调用模型做交易决策。
-
-系统默认模拟账户初始资金为 1,000,000 CNY。也可通过 API 创建多个内部账户：
-
-```http
-GET  /api/v2/paper/accounts
-POST /api/v2/paper/accounts
-POST /api/v2/paper/sessions/{session_id}/enable
-GET  /api/v2/paper/sessions/{session_id}
-```
-
-## 大模型配置
-
-DeepSeek：
+复制 `.env.v2.example` 后至少配置以下内容：
 
 ```dotenv
 TRADING_V2_MODEL_ENABLED=true
@@ -139,59 +78,50 @@ TRADING_V2_MODEL_API_KEY_ENV=DEEPSEEK_API_KEY
 DEEPSEEK_API_KEY=your-secret
 ```
 
-OpenAI 改为 `openai / gpt-5` 并使用 `OPENAI_API_KEY`；Claude 改为 `anthropic / claude-sonnet-4-5` 并使用 `ANTHROPIC_API_KEY`。兼容 OpenAI Chat Completions 的服务使用 `openai_compatible` 并设置 `TRADING_V2_MODEL_BASE_URL`。
+其他提供方：
 
-模型只负责把对话编译为受约束策略结构，不拥有 Broker、下单或发布权限。当前所有新策略均为草稿/观察模式。
+| 提供方 | `TRADING_V2_MODEL_PROVIDER` | Key 环境变量示例 |
+|---|---|---|
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Claude | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI-compatible | `openai_compatible` | 自定义，并设置 `TRADING_V2_MODEL_BASE_URL` |
 
-## cpptdx
+页面左下角“决策模型”可以检查配置并执行不产生交易的连接测试。
 
-通过 `.env` 配置：
+## 数据与资讯
 
-```dotenv
-TRADING_V2_CPPTDX_BASE_URL=http://127.0.0.1:8022
-TRADING_V2_CPPTDX_TIMEOUT_SECONDS=3
-```
+默认使用 `data/trading_v2.db`。生产环境可通过 `TRADING_V2_DATABASE_URL` 使用 PostgreSQL。
 
-当前支持：
+公开行情和资讯接口无需 API Key，但可能受到限流、地区限制和历史窗口限制。行情获取失败时，界面会明确显示错误，不会使用测试数据伪装真实行情。资讯默认每 60 秒更新；相关配置见 [.env.v2.example](.env.v2.example)。
 
-- `GET /api/v2/market/status`
-- `GET /api/v2/market/bars?instrument=cn_equity:XSHG:600000&timeframe=5m&limit=200`
-- `POST /api/v2/market/snapshots`
+示例标的：
 
-cpptdx 仅作为 A 股分钟 K 线、快照和补齐数据源，不承担 Broker 交易。
-
-## Broker 配置
-
-已停用的交易终端及其 SDK 已从代码、依赖和配置中完全移除。保留的东方财富代码位于 `curs/broker/`。V2 Adapter 尚未接入，所以配置 Broker 不代表 V2 已获得下单能力。
-
-示例配置：
-
-```yaml
-broker: eastmoney
-
-eastmoney:
-  account_no: ""
-  password: ""
-  session_file: "data/eastmoney_trader.session"
-```
-
-东方财富依赖网页交易接口，接口或登录校验变化可能导致失效。首次接入必须先使用只读连接测试，再使用模拟或审批模式验证。后续其他市场通过新的标准 Broker Adapter 接入，不再保留旧交易终端兼容层。
+- A 股：`cn_equity:XSHG:600519`
+- 美股：`us_equity:XNAS:AAPL`
+- 加密货币：`crypto:BINANCE:BTCUSDT`
 
 ## 测试
 
 ```powershell
-# V2
 .\.venv\Scripts\python.exe -m unittest discover -s test -p "test_trading_v2*.py" -v
 
-# 前端生产构建
 cd web_v2
 npm run build
 ```
 
-## 设计文档
+## 项目结构
 
-- [V2 架构](docs/v2/ARCHITECTURE.md)
-- [V2 数据模型](docs/v2/DATA_MODEL.md)
-- [V2 API](docs/v2/API.md)
-- [V2 交易生命周期](docs/v2/TRADING_LIFECYCLE.md)
-- [English Documentation](README_EN.md)
+```text
+trading_v2/  后端、策略 Session、行情、资讯、决策与模拟交易
+web_v2/      React 工作台
+docs/v2/     架构、数据模型、API 与交易生命周期
+test/        V2 自动化测试
+```
+
+## 文档
+
+- [架构](docs/v2/ARCHITECTURE.md)
+- [交易生命周期](docs/v2/TRADING_LIFECYCLE.md)
+- [API](docs/v2/API.md)
+- [数据模型](docs/v2/DATA_MODEL.md)
+- [English README](README_EN.md)

@@ -88,7 +88,7 @@ Session 不直接消费 Tick，也不提交订单。
 
 ### 4.5 Agent Decision
 
-`ContextBuilder` 只组装本次判断必要的内容：有效策略版本、最近 K 线与指标、账户摘要、持仓、市场状态和近期相关决策。模型返回严格 Schema 的 `Decision`。超时、限流、无效 JSON、版本不匹配或过期一律视为 `HOLD`。
+`ContextBuilder` 只组装本次判断必要的内容。当前最小实现仅发送有效策略版本和候选信号指标，不发送账户、持仓、委托或 Broker 信息；未来扩展任何账户上下文都必须经过显式授权和字段最小化。模型返回严格 Schema 的 `Decision`。超时、限流、无效 JSON、版本不匹配或过期一律视为 `HOLD`。
 
 ### 4.6 Risk and Execution
 
@@ -139,8 +139,10 @@ trading_v2/
 ├── domain/          # 无外部依赖的领域类型和状态机
 ├── sessions/        # 对话、Prompt/策略版本及发布
 ├── market/          # 标准行情、路由、聚合、指标
+├── news/            # 财经资讯标准模型、公开来源路由与缓存
 ├── signals/         # 指标、确定性规则、候选信号持久化与扫描
-├── agent/           # 上下文和结构化模型决策
+├── agent/           # 模型提供方与策略编译
+├── decisions/       # 候选信号的结构化模型决策及持久化
 ├── risk/            # 硬风控规则
 ├── execution/       # 委托、成交、对账
 ├── adapters/
@@ -193,15 +195,22 @@ cpptdx service
 
 ## 10. 当前实现切片（2026-09）
 
-已落地第 1、2、4 步以及第 5 步的“候选信号”部分：
+已落地第 1、2、4 步以及第 5 步的最小信号/决策闭环：
 
 - SQLAlchemy Repository 持久化 Session、Message、PromptVersion 和结构化策略 JSON。
 - `StrategyCompiler` 只接受白名单指标与操作符，拒绝额外字段，不执行模型生成代码。
 - DeepSeek、OpenAI、Anthropic 与 OpenAI-compatible HTTP Provider 通过同一接口接入。
-- React 工作台以 API 数据为准；仅 K 线在 cpptdx 不可用时显示明确的演示数据。
+- React 工作台以 API 数据为准；行情不可用时明确显示错误，不生成演示 K 线。
 - `SignalRuntime` 定时读取运行中 Session 的最新策略，只对闭合 Bar 计算白名单指标和规则。
 - `candidate_signals_v2` 按 Session、策略版本、标的、周期、K 线时间和方向唯一去重。
 - 信号经 SSE 推送，Web 将真实候选信号叠加到 K 线并显示在决策链中。
-- 暂停会停止新信号；当前信号尚不会调用决策模型或产生订单。
+- 每个候选信号触发一次结构化 `BUY/SELL/HOLD` 决策；方向冲突、低置信度、超时和非法响应安全降级为 HOLD。
+- 非 HOLD 决策才进入系统 Paper Broker，模型不提供数量；模拟持仓按最新闭合 Bar 自动盯市。
+- Web 提供只读模型配置状态与显式连接测试，密钥不进入浏览器。
+- `NewsProvider` 将东方财富、Yahoo Finance 与 Binance 公告统一为只读资讯；`NewsRuntime` 对运行中策略做增量扫描，持久化去重后发布 `news.received`。决策服务只在候选信号出现时读取有界的近期资讯上下文，新闻到达本身不创建订单；资讯链路失败不影响交易 Runtime。
 
-下一切片是信号触发的模型决策、限价撮合、部分成交和完整审计事件账本。
+下一切片是独立 RiskDecision 审计、限价撮合、部分成交和完整事件账本。
+
+### 10.1 受控反思而非无人监督进化
+
+当前不实现自动改写 Prompt。后续 `ReflectionService` 只读取已结束的模拟交易、当时策略版本和审计事件，生成不可执行的复盘报告与变更提案。提案必须由用户确认后才能创建新的 PromptVersion；运行中版本保持不可变，反思模块没有 Broker、风控配置或实盘权限。评估样本不足、行情质量异常或缺少对照时不生成优化结论。

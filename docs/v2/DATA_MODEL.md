@@ -105,7 +105,7 @@ quality = fresh | stale | gap | corrected
 
 ### 4.1 `candidate_signals`
 
-当前实际表名为 `candidate_signals_v2`，已保存候选信号、触发指标快照和过期时间。完整的 correlation/status 生命周期将在模型决策切片补充。
+当前实际表名为 `candidate_signals_v2`，已保存候选信号、触发指标快照和过期时间，并通过 `signal_id` 关联一次不可变模型决策。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -132,22 +132,21 @@ QUEUED → CONTEXT_READY → MODEL_RUNNING → DECIDED
 
 ### 4.3 `model_decisions`
 
-模型返回并经 Schema 校验后的不可变记录：
+当前实际表名为 `model_decisions_v2`，`signal_id` 具有唯一约束。模型返回并经 Schema 校验后的最小不可变记录：
 
 ```json
 {
-  "action": "BUY",
-  "confidence": "0.82",
-  "order_type": "LIMIT",
-  "limit_price": "12.35",
-  "stop_loss": "11.80",
-  "take_profit": "13.60",
-  "valid_until": "2026-09-21T02:31:00Z",
-  "reason": "5 分钟突破且量能满足策略条件"
+  "action": "buy",
+  "confidence": 0.82,
+  "rationale": "5 分钟突破且量能满足策略条件"
 }
 ```
 
-数据库同时保存 `signal_id`、`agent_run_id`、`prompt_version_id`、模型提供商、模型名、响应哈希和校验结果。无效或超时响应也要保存失败原因，但不得形成订单意图。
+数据库同时保存 `session_id`、策略版本、模型提供商、模型名、Prompt Schema 版本、状态和错误。无效或超时响应保存为 `fallback + hold` 并记录失败原因，不形成订单。模型输出中不存在数量字段。
+
+### 4.4 `financial_news_v2`
+
+保存标准化财经资讯的来源 ID、标题、摘要、HTTPS 原文地址、来源、发布时间、资产类别、标的和接收时间。标准 ID 包含标的，`instrument + URL` 具有唯一约束，因此同一条市场快讯可关联多个策略标的而不会在单个标的内重复。后台订阅器把同一轮新增文章合并成一个 `news.received` 事件，避免重启、重复轮询或历史补录造成消息风暴。模型只读取标题、截断摘要、来源、分类和发布时间，不发送 URL，也不把资讯文本视为系统指令。
 
 ## 5. 风控与执行
 

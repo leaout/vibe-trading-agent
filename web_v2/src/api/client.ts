@@ -5,6 +5,8 @@ import type {
   ChatMessage,
   ChartSignal,
   PaperAccountDetail,
+  ModelStatus,
+  NewsArticle,
   SessionSnapshot,
   StrategyPromptVersion,
   TradingSession,
@@ -103,6 +105,28 @@ interface ApiPaperDetail {
     price: string | number; fee: string | number; status: "filled" | "rejected";
     rejection_reason?: string; created_at: string;
   }>;
+}
+
+interface ApiModelStatus {
+  enabled: boolean;
+  configured: boolean;
+  decision_enabled: boolean;
+  provider: string;
+  model: string;
+  api_key_env: string;
+  minimum_confidence: number;
+}
+
+interface ApiNewsArticle {
+  id: string;
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  published_at: string;
+  asset_class: string;
+  instrument?: string;
+  category: string;
 }
 
 export class ApiError extends Error {
@@ -236,6 +260,28 @@ const mapPaperDetail = (detail: ApiPaperDetail): PaperAccountDetail => ({
   })),
 });
 
+const mapModelStatus = (status: ApiModelStatus): ModelStatus => ({
+  enabled: status.enabled,
+  configured: status.configured,
+  decisionEnabled: status.decision_enabled,
+  provider: status.provider,
+  model: status.model,
+  apiKeyEnv: status.api_key_env,
+  minimumConfidence: status.minimum_confidence,
+});
+
+const mapNewsArticle = (article: ApiNewsArticle): NewsArticle => ({
+  id: article.id,
+  title: article.title,
+  summary: article.summary,
+  url: article.url,
+  source: article.source,
+  publishedAt: article.published_at,
+  assetClass: article.asset_class,
+  instrument: article.instrument,
+  category: article.category,
+});
+
 export const apiClient = {
   getAuthStatus: async () => {
     const status = await request<ApiAuthStatus>("/auth/me");
@@ -297,4 +343,12 @@ export const apiClient = {
   getPaperSession: async (sessionId: string) => mapPaperDetail(
     await request<ApiPaperDetail>(`/paper/sessions/${encodeURIComponent(sessionId)}`),
   ),
+  getModelStatus: async () => mapModelStatus(await request<ApiModelStatus>("/model/status")),
+  testModel: () => request<{ connected: boolean; provider: string; model: string; message: string }>(
+    "/model/test", { method: "POST" },
+  ),
+  getNews: async (instrument: string, limit = 20) => {
+    const query = new URLSearchParams({ instrument, limit: String(limit) });
+    return (await request<ApiNewsArticle[]>(`/news?${query.toString()}`)).map(mapNewsArticle);
+  },
 };

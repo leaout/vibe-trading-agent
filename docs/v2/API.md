@@ -158,7 +158,7 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 
 ## 6. 信号、决策与时间线
 
-当前候选信号随 `GET /sessions/{id}` 工作区快照的 `signals` 和 `events` 字段返回；独立查询接口是后续契约。信号包含触发 K 线、价格、方向、策略版本和逐条规则事实。后台只扫描状态为 `running` 且具有合法结构化策略的 Session。
+当前候选信号与模型决策随 `GET /sessions/{id}` 工作区快照的 `signals` 和 `events` 字段返回；独立查询接口是后续契约。模型决策会把图表信号投影为 `approved/rejected` 并在时间线显示置信度和理由。后台只扫描状态为 `running` 且具有合法结构化策略的 Session。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
@@ -199,6 +199,15 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 
 ## 8. 连接与配置
 
+当前已经实现：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/model/status` | 返回提供方、模型名、密钥是否已加载和最低置信度，不返回密钥 |
+| `POST` | `/model/test` | 发起一次无交易结构化响应测试，并更新运行状态 |
+
+以下为后续契约：
+
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `GET` | `/connections` | 行情、模型、Broker 配置状态 |
@@ -208,6 +217,14 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 | `PUT` | `/market-routing` | 配置各市场 Provider 的主备顺序 |
 
 生产环境优先从环境变量或密钥服务读取凭证。API 不保存或返回明文密钥。
+
+## 8.1 财经资讯
+
+```http
+GET /api/v2/news?instrument=us_equity:XNAS:AAPL&limit=20
+```
+
+返回统一的 `id/title/summary/url/source/published_at/asset_class/instrument/category`。当前自动路由：A 股东方财富、美股 Yahoo Finance、Crypto Binance 公告。接口会同步写入 `financial_news_v2` 并按来源 ID/URL 去重。后台订阅 Runtime 对运行中策略定时扫描，新文章通过 Session SSE 发送 `event: news`；资讯源故障返回 502，但不改变交易 Runtime 状态。
 
 ## 9. SSE 实时事件
 

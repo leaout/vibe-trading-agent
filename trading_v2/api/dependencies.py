@@ -8,8 +8,10 @@ from trading_v2.auth.models import User
 from trading_v2.auth.service import AuthService
 
 from trading_v2.config.settings import AppSettings
+from trading_v2.agent.providers import ModelProvider
 from trading_v2.events import InMemoryEventStream
 from trading_v2.market.provider import MarketDataProvider
+from trading_v2.news.service import NewsService
 from trading_v2.paper.service import PaperTradingService
 from trading_v2.runtime import RuntimeStateStore
 from trading_v2.sessions.service import TradingSessionService
@@ -48,6 +50,14 @@ def get_paper_service(request: Request) -> PaperTradingService:
 
 def get_auth_service(request: Request) -> AuthService:
     return request.app.state.auth_service
+
+
+def get_model_provider(request: Request) -> ModelProvider:
+    return request.app.state.model_provider
+
+
+def get_news_service(request: Request) -> NewsService:
+    return request.app.state.news_service
 
 
 async def require_auth(request: Request) -> User:

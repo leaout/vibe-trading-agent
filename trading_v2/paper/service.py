@@ -5,7 +5,8 @@ import asyncio
 from decimal import Decimal
 
 from trading_v2.agent.models import StrategySpec
-from trading_v2.domain.enums import SignalSide, TradingMode
+from trading_v2.decisions.models import ModelDecision
+from trading_v2.domain.enums import DecisionAction, SignalSide, TradingMode
 from trading_v2.domain.signal import Signal
 from trading_v2.events import InMemoryEventStream
 from trading_v2.paper.models import PaperAccount, PaperAccountDetail, PaperOrder
@@ -65,13 +66,30 @@ class PaperTradingService:
     async def process_signal(
         self, session_id: str, strategy: StrategySpec, signal: Signal,
     ) -> PaperOrder | None:
+        """Backward-compatible rule-only execution when AI decisions are disabled."""
+        side = "buy" if signal.side == SignalSide.BUY else "sell"
+        return await self._execute(session_id, strategy, signal, side)
+
+    async def process_decision(
+        self, session_id: str, strategy: StrategySpec, signal: Signal,
+        decision: ModelDecision,
+    ) -> PaperOrder | None:
+        if decision.action == DecisionAction.HOLD:
+            return None
+        return await self._execute(session_id, strategy, signal, decision.action.value)
+
+    async def mark_price(self, instrument: str, price: Decimal) -> int:
+        return await asyncio.to_thread(self.repository.mark_price, instrument, price)
+
+    async def _execute(
+        self, session_id: str, strategy: StrategySpec, signal: Signal, side: str,
+    ) -> PaperOrder | None:
         session = await self.sessions.get_session(session_id)
         if session is None or session.mode != TradingMode.PAPER:
             return None
         account = await asyncio.to_thread(self.repository.account_for_session, session_id)
         if account is None:
             return None
-        side = "buy" if signal.side == SignalSide.BUY else "sell"
         order = await asyncio.to_thread(
             self.repository.execute,
             account.id, session_id, str(signal.id), signal.instrument.canonical,

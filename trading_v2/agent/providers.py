@@ -6,6 +6,7 @@ import os
 from typing import Any, Protocol
 
 import aiohttp
+from dotenv import dotenv_values
 
 from trading_v2.config.settings import AppSettings
 
@@ -17,6 +18,10 @@ class ModelProviderError(RuntimeError):
 class ModelProvider(Protocol):
     provider_name: str
     model_name: str
+
+    @property
+    def configured(self) -> bool:
+        ...
 
     async def complete_json(
         self,
@@ -33,6 +38,10 @@ class ModelProvider(Protocol):
 class DisabledModelProvider:
     provider_name = "disabled"
     model_name = "disabled"
+
+    @property
+    def configured(self) -> bool:
+        return False
 
     async def complete_json(self, system_prompt: str, user_prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
         raise ModelProviderError("决策模型尚未配置；策略已保存为草稿")
@@ -51,13 +60,24 @@ class HttpModelProvider:
         self._max_tokens = settings.model_max_tokens
         self._session: aiohttp.ClientSession | None = None
 
+    @property
+    def configured(self) -> bool:
+        return bool(self._api_key())
+
+    def _api_key(self) -> str:
+        direct = os.getenv(self._api_key_env, "").strip()
+        if direct:
+            return direct
+        value = dotenv_values(".env").get(self._api_key_env)
+        return str(value).strip() if value else ""
+
     async def complete_json(
         self,
         system_prompt: str,
         user_prompt: str,
         schema: dict[str, Any],
     ) -> dict[str, Any]:
-        api_key = os.getenv(self._api_key_env, "").strip()
+        api_key = self._api_key()
         if not api_key:
             raise ModelProviderError(f"环境变量 {self._api_key_env} 未设置")
         if self.provider_name == "anthropic":

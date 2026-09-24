@@ -113,3 +113,25 @@ export interface PaperAccountDetail {
     createdAt: string;
   }>;
 }
+
+export interface ModelStatus {
+  enabled: boolean;
+  configured: boolean;
+  decisionEnabled: boolean;
+  provider: string;
+  model: string;
+  apiKeyEnv: string;
+  minimumConfidence: number;
+}
+
+export interface NewsArticle {
+  id: string;
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+  assetClass: string;
+  instrument?: string;
+  category: string;
+}

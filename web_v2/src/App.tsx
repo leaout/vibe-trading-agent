@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { apiClient } from "./api/client";
+import { apiClient, ApiError } from "./api/client";
 import { SessionEventStream } from "./api/sse";
 import { CandlestickChart } from "./components/CandlestickChart";
 import { AuthScreen } from "./components/AuthScreen";
 import { ChatPanel } from "./components/ChatPanel";
 import { EventTimeline } from "./components/EventTimeline";
 import { PaperAccountPanel } from "./components/PaperAccountPanel";
+import { ModelSettingsPanel } from "./components/ModelSettingsPanel";
+import { NewsPanel } from "./components/NewsPanel";
 import { SessionSidebar } from "./components/SessionSidebar";
-import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
+import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, ModelStatus, NewsArticle, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
 
 const timeframes = ["1m", "5m", "15m", "30m", "1h", "1D", "1W", "1M", "1Y", "全部"];
 const marketProviders = [
@@ -42,6 +44,13 @@ function App() {
   const [marketSource, setMarketSource] = useState("");
   const [marketError, setMarketError] = useState("");
   const [marketProvider, setMarketProvider] = useState(() => localStorage.getItem("vibe-market-provider") ?? "auto");
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [showModelSettings, setShowModelSettings] = useState(false);
+  const [showNews, setShowNews] = useState(false);
+  const [news, setNews] = useState<NewsArticle[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState("");
+  const newsRequestId = useRef(0);
   const selected = sessions.find((session) => session.id === selectedId);
   const lastCandle = candles[candles.length - 1];
   const previous = candles[candles.length - 2];
@@ -89,9 +98,48 @@ function App() {
       : (remoteSessions[0]?.id ?? ""));
   };
 
+  const loadModelStatus = async () => {
+    setModelStatus(await apiClient.getModelStatus());
+  };
+
+  const loadNews = async () => {
+    if (!selected) return;
+    const requestId = ++newsRequestId.current;
+    setNewsLoading(true);
+    setNewsError("");
+    try {
+      const articles = await apiClient.getNews(`${selected.assetClass}:${selected.venue}:${selected.symbol}`);
+      if (requestId !== newsRequestId.current) return;
+      setNews(articles);
+      setNewsError("");
+    } catch (reason) {
+      if (requestId !== newsRequestId.current) return;
+      const detail = reason instanceof ApiError
+        && typeof reason.payload === "object" && reason.payload !== null
+        && "detail" in reason.payload && typeof reason.payload.detail === "string"
+        ? reason.payload.detail
+        : "财经资讯源暂时不可用，请稍后重试。";
+      setNewsError(detail);
+    } finally {
+      if (requestId === newsRequestId.current) setNewsLoading(false);
+    }
+  };
+
+  const openNews = () => {
+    setShowNews(true);
+    loadNews().catch(() => undefined);
+  };
+
+  useEffect(() => {
+    newsRequestId.current += 1;
+    setNews([]);
+    setNewsError("");
+    setNewsLoading(false);
+  }, [selectedId]);
+
   useEffect(() => {
     if (!authUser) return;
-    loadSessions()
+    Promise.all([loadSessions(), loadModelStatus()])
       .catch(() => setError("无法连接 V2 API，请确认后端已启动。"))
       .finally(() => setLoading(false));
   }, [authUser]);
@@ -158,7 +206,7 @@ function App() {
     if (!selectedId || import.meta.env.VITE_ENABLE_SSE === "false") return undefined;
     const stream = new SessionEventStream();
     stream.connect(selectedId);
-    const unsubscribe = stream.subscribe(() => {
+    const unsubscribe = stream.subscribe((event) => {
       loadSessions().catch(() => undefined);
       apiClient.getSession(selectedId).then((snapshot) => {
         setMessages(snapshot.messages);
@@ -167,12 +215,13 @@ function App() {
         setEvents(snapshot.events);
       }).catch(() => undefined);
       apiClient.getPaperSession(selectedId).then(setPaper).catch(() => setPaper(null));
+      if (event.event === "news" && showNews) loadNews().catch(() => undefined);
     });
     return () => {
       unsubscribe();
       stream.close();
     };
-  }, [selectedId]);
+  }, [selectedId, showNews]);
 
   const createSession = async () => {
     const prompt = createPrompt.trim();
@@ -291,6 +340,8 @@ function App() {
           marketSource={marketSource}
           onCreate={() => setShowCreate(true)}
           onSelect={setSelectedId}
+          modelStatus={modelStatus}
+          onModelSettings={() => setShowModelSettings(true)}
         />
 
         {!selected ? (
@@ -328,6 +379,7 @@ function App() {
                 <select className="market-provider-select" value={marketProvider} onChange={(event) => setMarketProvider(event.target.value)} aria-label="选择行情源">
                   {marketProviders.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
+                <button className="news-button" onClick={openNews}>财经资讯</button>
               </div>
 
               <div className="chart-legend">
@@ -376,6 +428,23 @@ function App() {
           </div>
         </section>
       </div>}
+      {showModelSettings && (
+        <ModelSettingsPanel
+          status={modelStatus}
+          onClose={() => setShowModelSettings(false)}
+          onRefresh={loadModelStatus}
+        />
+      )}
+      {showNews && selected && (
+        <NewsPanel
+          articles={news}
+          loading={newsLoading}
+          error={newsError}
+          instrument={`${selected.symbol}.${selected.venue}`}
+          onClose={() => setShowNews(false)}
+          onRefresh={() => { loadNews().catch(() => undefined); }}
+        />
+      )}
     </div>
   );
 }

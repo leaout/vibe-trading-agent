@@ -68,6 +68,20 @@ class PaperRepositoryTest(unittest.TestCase):
         self.assertEqual(sell.status, "rejected")
         self.assertIn("当日买入不可卖", sell.rejection_reason)
 
+    def test_mark_price_updates_equity_and_unrealized_pnl(self) -> None:
+        account = self.repository.ensure_default()
+        self.repository.execute(
+            account.id, str(uuid4()), str(uuid4()), "crypto:BINANCE:BTCUSDT",
+            "buy", Decimal("100"), Decimal("0.05"),
+        )
+
+        updated = self.repository.mark_price("crypto:BINANCE:BTCUSDT", Decimal("110"))
+        detail = self.repository.detail(account.id)
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(detail.positions[0].last_price, Decimal("110.000000"))
+        self.assertGreater(detail.account.unrealized_pnl, 0)
+
 
 class PaperApiTest(unittest.TestCase):
     def test_system_account_is_created_and_can_bind_session(self) -> None:

@@ -4,6 +4,7 @@
 import asyncio
 import re
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from trading_v2.agent.compiler import StrategyCompiler
@@ -20,6 +21,9 @@ from trading_v2.sessions.models import (
 from trading_v2.sessions.repository import SessionRepository
 from trading_v2.signals.repository import SignalRepository
 
+if TYPE_CHECKING:
+    from trading_v2.decisions.repository import DecisionRepository
+
 
 class TradingSessionService:
     def __init__(
@@ -28,11 +32,13 @@ class TradingSessionService:
         compiler: StrategyCompiler,
         events: InMemoryEventStream,
         signals: SignalRepository | None = None,
+        decisions: "DecisionRepository | None" = None,
     ) -> None:
         self.repository = repository
         self.compiler = compiler
         self.events = events
         self.signals = signals
+        self.decisions = decisions
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self.repository.initialize)
@@ -54,6 +60,18 @@ class TradingSessionService:
             return snapshot
         signals = await asyncio.to_thread(self.signals.list_for_session, session_id)
         events = [self.signals.event_projection(item) for item in signals[-50:]]
+        if self.decisions is not None:
+            decisions = await asyncio.to_thread(self.decisions.list_for_session, session_id)
+            by_signal = {item.signal_id: item for item in decisions}
+            for signal in signals:
+                decision = by_signal.get(signal["id"])
+                if decision is None:
+                    continue
+                signal["state"] = "rejected" if decision.action.value == "hold" else "approved"
+                signal["confidence"] = decision.confidence
+                signal["label"] = f"{signal['label']} · AI {decision.action.value.upper()}"
+            events.extend(self.decisions.event_projection(item) for item in decisions[-50:])
+            events = sorted(events, key=lambda item: item["timestamp"])[-50:]
         return snapshot.model_copy(update={"signals": signals, "events": events})
 
     async def runtime_targets(

@@ -16,6 +16,8 @@ from trading_v2.signals.evaluator import StrategyEvaluator
 from trading_v2.signals.repository import SignalRepository
 
 if TYPE_CHECKING:
+    from trading_v2.decisions.service import DecisionService
+    from trading_v2.news.service import NewsService
     from trading_v2.paper.service import PaperTradingService
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,10 @@ class SignalRuntime:
         poll_interval_seconds: float = 5,
         bar_limit: int = 200,
         paper: "PaperTradingService | None" = None,
+        decisions: "DecisionService | None" = None,
+        news: "NewsService | None" = None,
+        decision_news_limit: int = 8,
+        decision_news_max_age_hours: int = 48,
     ) -> None:
         self.sessions = sessions
         self.market = market
@@ -40,6 +46,10 @@ class SignalRuntime:
         self.bar_limit = bar_limit
         self.evaluator = StrategyEvaluator()
         self.paper = paper
+        self.decisions = decisions
+        self.news = news
+        self.decision_news_limit = decision_news_limit
+        self.decision_news_max_age_hours = decision_news_max_age_hours
         self._task: asyncio.Task | None = None
         self._scan_lock = asyncio.Lock()
 
@@ -70,6 +80,8 @@ class SignalRuntime:
     async def _evaluate(self, session_id: str, version: int, strategy: StrategySpec) -> Signal | None:
         instrument = _parse_instrument(strategy.instrument)
         bars = await self.market.get_bars(instrument, strategy.timeframe, self.bar_limit)
+        if self.paper is not None and bars:
+            await self.paper.mark_price(instrument.canonical, bars[-1].close)
         signal = self.evaluator.evaluate(session_id, version, strategy, bars)
         if signal is None:
             return None
@@ -81,7 +93,17 @@ class SignalRuntime:
             "strategy_version": version, "side": signal.side.value,
             "bar_time": signal.bar_time.isoformat(), "reason": signal.reason,
         })
-        if self.paper is not None:
+        if self.decisions is not None:
+            news_context = (
+                await self.news.decision_context(
+                    instrument, self.decision_news_limit, self.decision_news_max_age_hours,
+                )
+                if self.news is not None and self.decision_news_limit > 0 else []
+            )
+            decision = await self.decisions.decide(signal, strategy, news_context)
+            if self.paper is not None:
+                await self.paper.process_decision(session_id, strategy, signal, decision)
+        elif self.paper is not None:
             await self.paper.process_signal(session_id, strategy, signal)
         return signal
 

@@ -1,4 +1,4 @@
-import type { TradingSession } from "../types";
+import type { ModelStatus, TradingSession } from "../types";
 
 interface SessionSidebarProps {
   sessions: TradingSession[];
@@ -6,6 +6,8 @@ interface SessionSidebarProps {
   onSelect: (id: string) => void;
   onCreate: () => void;
   marketSource: string;
+  modelStatus: ModelStatus | null;
+  onModelSettings: () => void;
 }
 
 const statusLabel: Record<TradingSession["status"], string> = {
@@ -15,7 +17,7 @@ const statusLabel: Record<TradingSession["status"], string> = {
   attention: "需处理",
 };
 
-export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marketSource }: SessionSidebarProps) {
+export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marketSource, modelStatus, onModelSettings }: SessionSidebarProps) {
   return (
     <aside className="session-sidebar panel-edge">
       <div className="sidebar-heading">
@@ -61,7 +63,10 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onCreate, marke
       <div className="sidebar-system">
         <div className="system-row"><span><i className={`health-dot ${marketSource ? "" : "offline"}`} />行情服务</span><strong>{marketSource || "未连接"}</strong></div>
         <div className="system-row"><span><i className="health-dot offline" />Broker</span><strong>未接入</strong></div>
-        <div className="system-row"><span><i className="health-dot model offline" />决策模型</span><strong>未配置</strong></div>
+        <button className="system-row system-button" onClick={onModelSettings}>
+          <span><i className={`health-dot model ${modelStatus?.configured ? "" : "offline"}`} />决策模型</span>
+          <strong>{modelStatus?.configured ? modelStatus.model : "未配置"}</strong>
+        </button>
       </div>
     </aside>
   );

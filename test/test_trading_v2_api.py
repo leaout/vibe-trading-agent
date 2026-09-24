@@ -71,6 +71,7 @@ class TradingV2ApiTest(unittest.TestCase):
             live = client.get("/api/v2/health/live")
             ready = client.get("/api/v2/health/ready")
             status = client.get("/api/v2/status")
+            model = client.get("/api/v2/model/status")
 
             self.assertEqual(live.status_code, 200)
             self.assertEqual(live.json()["service"], "trading-v2-test")
@@ -80,6 +81,9 @@ class TradingV2ApiTest(unittest.TestCase):
             self.assertEqual(status.status_code, 200)
             self.assertEqual(status.json()["trading_mode"], "observe")
             self.assertIn("market_data", status.json()["components"])
+            self.assertEqual(model.status_code, 200)
+            self.assertFalse(model.json()["configured"])
+            self.assertEqual(model.json()["minimum_confidence"], 0.65)
 
     def test_root_and_openapi_are_standalone(self) -> None:
         with TestClient(create_app(settings=self.settings)) as client:

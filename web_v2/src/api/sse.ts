@@ -29,7 +29,7 @@ export class SessionEventStream {
     };
 
     this.source.onmessage = forward;
-    ["signal", "decision", "risk", "order", "session", "bar"].forEach((name) => {
+    ["signal", "decision", "risk", "order", "session", "bar", "news"].forEach((name) => {
       this.source?.addEventListener(name, forward as EventListener);
     });
   }

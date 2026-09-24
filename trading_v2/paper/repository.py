@@ -148,6 +148,26 @@ class PaperRepository:
             row = db.get(PaperAccountRecord, binding.account_id)
             return self._account(db, row) if row else None
 
+    def mark_price(self, instrument: str, price: Decimal) -> int:
+        """Mark every open paper position in an instrument to the latest closed bar."""
+        now = _now()
+        with self.database.sessions.begin() as db:
+            positions = db.scalars(
+                select(PaperPositionRecord).where(
+                    PaperPositionRecord.instrument == instrument,
+                    PaperPositionRecord.quantity > 0,
+                )
+            ).all()
+            account_ids = {position.account_id for position in positions}
+            for position in positions:
+                position.last_price = price
+                position.updated_at = now
+            for account_id in account_ids:
+                account = db.get(PaperAccountRecord, account_id)
+                if account is not None:
+                    account.updated_at = now
+            return len(positions)
+
     def execute(self, account_id: str, session_id: str, signal_id: str, instrument: str, side: str, price: Decimal, allocation: Decimal) -> PaperOrder:
         now = _now()
         with self.database.sessions.begin() as db:

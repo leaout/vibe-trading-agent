@@ -42,6 +42,11 @@ class AppSettings(BaseSettings):
     cpptdx_snapshot_interval_ms: int = Field(default=1_000, ge=200, le=60_000)
     market_data_provider: str = "public"
     market_data_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    news_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    news_cache_seconds: int = Field(default=60, ge=10, le=3_600)
+    news_poll_interval_seconds: float = Field(default=60, ge=15, le=3_600)
+    decision_news_limit: int = Field(default=8, ge=0, le=30)
+    decision_news_max_age_hours: int = Field(default=48, ge=1, le=720)
     database_url: str = "sqlite:///data/trading_v2.db"
     model_enabled: bool = False
     model_provider: str = "deepseek"
@@ -50,6 +55,8 @@ class AppSettings(BaseSettings):
     model_base_url: str = ""
     model_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     model_max_tokens: int = Field(default=1_500, ge=256, le=16_000)
+    decision_enabled: bool = True
+    decision_min_confidence: float = Field(default=0.65, ge=0, le=1)
     signal_poll_interval_seconds: float = Field(default=5.0, ge=1, le=300)
     signal_bar_limit: int = Field(default=200, ge=30, le=800)
     auth_enabled: bool = True
