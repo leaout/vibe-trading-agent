@@ -1,6 +1,8 @@
 # coding: utf-8
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -10,6 +12,17 @@ from trading_v2.domain import TradingMode
 
 
 class TradingV2SettingsTest(unittest.TestCase):
+    def test_local_env_overrides_shared_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shared = root / ".env"
+            local = root / ".env.local"
+            shared.write_text("TRADING_V2_MODEL_NAME=shared-model\n", encoding="utf-8")
+            local.write_text("TRADING_V2_MODEL_NAME=local-model\n", encoding="utf-8")
+            settings = AppSettings(_env_file=(shared, local))
+
+        self.assertEqual(settings.model_name, "local-model")
+
     def test_environment_variables_override_defaults(self) -> None:
         environment = {
             "TRADING_V2_PORT": "8123",

@@ -5,6 +5,7 @@ import type { Candle, ChartSignal } from "../types";
 interface CandlestickChartProps {
   candles: Candle[];
   signals: ChartSignal[];
+  onSignalClick?: (signalId: string) => void;
 }
 
 const width = 1040;
@@ -27,7 +28,7 @@ function money(value: number): string {
   return value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CandlestickChart({ candles, signals }: CandlestickChartProps) {
+export function CandlestickChart({ candles, signals, onSignalClick }: CandlestickChartProps) {
   const geometry = useMemo(() => {
     if (!candles.length) return null;
     const chartBottom = height - plotBottom;
@@ -158,7 +159,8 @@ export function CandlestickChart({ candles, signals }: CandlestickChartProps) {
           const markerY = geometry.priceToY(isBuy ? candle.low : candle.high) + (isBuy ? 22 : -22);
           const color = signal.state === "rejected" ? "#f4a261" : isBuy ? "#38dda5" : "#ff6b80";
           return (
-            <g key={signal.id} className="signal-marker" transform={`translate(${x}, ${markerY})`}>
+            <g key={signal.id} className="signal-marker" transform={`translate(${x}, ${markerY})`} onClick={() => onSignalClick?.(signal.id)}>
+              <title>点击查看该信号的决策详情</title>
               <circle r="12" fill={color} fillOpacity="0.15" filter="url(#signalGlow)" />
               <path d={isBuy ? "M0,-8 L7,4 L2,4 L2,9 L-2,9 L-2,4 L-7,4 Z" : "M0,8 L7,-4 L2,-4 L2,-9 L-2,-9 L-2,-4 L-7,-4 Z"} fill={color} />
               <g transform={`translate(${isBuy ? 14 : -88}, -12)`}>

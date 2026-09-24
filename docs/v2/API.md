@@ -158,7 +158,15 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 
 ## 6. 信号、决策与时间线
 
-当前候选信号与模型决策随 `GET /sessions/{id}` 工作区快照的 `signals` 和 `events` 字段返回；独立查询接口是后续契约。模型决策会把图表信号投影为 `approved/rejected` 并在时间线显示置信度和理由。后台只扫描状态为 `running` 且具有合法结构化策略的 Session。
+当前候选信号与模型决策随 `GET /sessions/{id}` 工作区快照的 `signals` 和 `events` 字段返回；每个新候选信号还有独立审计详情接口。模型决策会把图表信号投影为 `approved/rejected` 并在时间线显示置信度和理由。后台只扫描状态为 `running` 且具有合法结构化策略的 Session。
+
+已实现决策审计详情：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/sessions/{id}/signals/{signal_id}/audit` | 读取策略/信号/资讯输入快照、模型结论和模拟执行结果 |
+
+快照不含密钥。旧信号或尚未产生决策审计记录的信号返回 404；当前页面可点击 K 线信号标记查看已有快照。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |

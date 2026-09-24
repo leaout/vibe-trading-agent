@@ -108,6 +108,7 @@ def create_app(
         bar_limit=app_settings.signal_bar_limit,
         paper=paper,
         decisions=decision_service,
+        audit_repository=decision_repository,
         news=news_service,
         decision_news_limit=app_settings.decision_news_limit,
         decision_news_max_age_hours=app_settings.decision_news_max_age_hours,
@@ -184,6 +185,7 @@ def create_app(
     app.state.auth_service = auth
     app.state.model_provider = model_provider
     app.state.decision_service = decision_service
+    app.state.decision_repository = decision_repository
 
     if app_settings.cors_origins:
         app.add_middleware(

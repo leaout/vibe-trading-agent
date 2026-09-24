@@ -9,8 +9,9 @@ import { EventTimeline } from "./components/EventTimeline";
 import { PaperAccountPanel } from "./components/PaperAccountPanel";
 import { ModelSettingsPanel } from "./components/ModelSettingsPanel";
 import { NewsPanel } from "./components/NewsPanel";
+import { DecisionAuditPanel } from "./components/DecisionAuditPanel";
 import { SessionSidebar } from "./components/SessionSidebar";
-import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, ModelStatus, NewsArticle, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
+import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, DecisionAudit, ModelStatus, NewsArticle, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
 
 const timeframes = ["1m", "5m", "15m", "30m", "1h", "1D", "1W", "1M", "1Y", "全部"];
 const marketProviders = [
@@ -50,6 +51,11 @@ function App() {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState("");
+  const [decisionAudit, setDecisionAudit] = useState<DecisionAudit | null>(null);
+  const [showAuditPanel, setShowAuditPanel] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const auditRequestId = useRef(0);
   const newsRequestId = useRef(0);
   const selected = sessions.find((session) => session.id === selectedId);
   const lastCandle = candles[candles.length - 1];
@@ -130,11 +136,32 @@ function App() {
     loadNews().catch(() => undefined);
   };
 
+  const openDecisionAudit = async (signalId: string) => {
+    if (!selected) return;
+    const requestId = ++auditRequestId.current;
+    setShowAuditPanel(true);
+    setDecisionAudit(null);
+    setAuditError("");
+    setAuditLoading(true);
+    try {
+      const audit = await apiClient.getSignalAudit(selected.id, signalId);
+      if (requestId === auditRequestId.current) setDecisionAudit(audit);
+    } catch {
+      if (requestId === auditRequestId.current) setAuditError("该信号的审计快照暂不可用。新产生的信号会保存完整详情。");
+    } finally {
+      if (requestId === auditRequestId.current) setAuditLoading(false);
+    }
+  };
+
   useEffect(() => {
     newsRequestId.current += 1;
     setNews([]);
     setNewsError("");
     setNewsLoading(false);
+    setDecisionAudit(null);
+    setShowAuditPanel(false);
+    auditRequestId.current += 1;
+    setAuditError("");
   }, [selectedId]);
 
   useEffect(() => {
@@ -391,7 +418,7 @@ function App() {
                 </div>
               </div>
               <div className="chart-stage">
-                <CandlestickChart candles={candles} signals={chartLayer === "signals" ? displayedSignals : []} />
+              <CandlestickChart candles={candles} signals={chartLayer === "signals" ? displayedSignals : []} onSignalClick={openDecisionAudit} />
               </div>
 
               <div className="chart-stats">
@@ -443,6 +470,14 @@ function App() {
           instrument={`${selected.symbol}.${selected.venue}`}
           onClose={() => setShowNews(false)}
           onRefresh={() => { loadNews().catch(() => undefined); }}
+        />
+      )}
+      {showAuditPanel && (
+        <DecisionAuditPanel
+          audit={decisionAudit}
+          loading={auditLoading}
+          error={auditError}
+          onClose={() => { auditRequestId.current += 1; setShowAuditPanel(false); setDecisionAudit(null); setAuditError(""); }}
         />
       )}
     </div>

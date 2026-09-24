@@ -7,7 +7,8 @@ from typing import Annotated, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from trading_v2.api.dependencies import get_event_stream, get_session_service, get_signal_runtime
+from trading_v2.api.dependencies import get_decision_repository, get_event_stream, get_session_service, get_signal_runtime
+from trading_v2.decisions.repository import DecisionRepository
 from trading_v2.domain.signal import Signal
 from trading_v2.events import InMemoryEventStream
 from trading_v2.sessions.models import (
@@ -21,6 +22,21 @@ from trading_v2.sessions.service import TradingSessionService
 from trading_v2.signals.runtime import SignalRuntime
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+@router.get("/{session_id}/signals/{signal_id}/audit")
+async def signal_audit(
+    session_id: str,
+    signal_id: str,
+    service: Annotated[TradingSessionService, Depends(get_session_service)],
+    repository: Annotated[DecisionRepository, Depends(get_decision_repository)],
+) -> dict:
+    if await service.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="strategy session not found")
+    audit = await asyncio.to_thread(repository.get_audit, session_id, signal_id)
+    if audit is None:
+        raise HTTPException(status_code=404, detail="decision audit not found")
+    return audit
 
 
 @router.get("", response_model=list[TradingSession])

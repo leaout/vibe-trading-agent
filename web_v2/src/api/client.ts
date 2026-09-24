@@ -4,6 +4,7 @@ import type {
   Candle,
   ChatMessage,
   ChartSignal,
+  DecisionAudit,
   PaperAccountDetail,
   ModelStatus,
   NewsArticle,
@@ -77,6 +78,18 @@ interface ApiSignal {
   state: ChartSignal["state"];
   label: string;
   confidence?: number;
+}
+
+interface ApiDecisionAudit {
+  signal_id: string;
+  session_id: string;
+  context: DecisionAudit["context"];
+  model_response: Record<string, unknown> | null;
+  decision: Record<string, unknown> | null;
+  execution: Record<string, unknown> | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
 }
 
 interface ApiEvent {
@@ -302,6 +315,22 @@ export const apiClient = {
     })),
   getSession: async (sessionId: string) =>
     mapSnapshot(await request<ApiSessionSnapshot>(`/sessions/${encodeURIComponent(sessionId)}`)),
+  getSignalAudit: async (sessionId: string, signalId: string): Promise<DecisionAudit> => {
+    const audit = await request<ApiDecisionAudit>(
+      `/sessions/${encodeURIComponent(sessionId)}/signals/${encodeURIComponent(signalId)}/audit`,
+    );
+    return {
+      signalId: audit.signal_id,
+      sessionId: audit.session_id,
+      context: audit.context,
+      modelResponse: audit.model_response,
+      decision: audit.decision,
+      execution: audit.execution,
+      startedAt: audit.started_at,
+      completedAt: audit.completed_at,
+      durationMs: audit.duration_ms,
+    };
+  },
   getCandles: (sessionId: string, timeframe: string) =>
     request<Candle[]>(
       `/sessions/${encodeURIComponent(sessionId)}/candles?timeframe=${encodeURIComponent(timeframe)}`,

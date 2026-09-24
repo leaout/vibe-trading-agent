@@ -1,7 +1,8 @@
 # coding: utf-8
 """Typed application settings.
 
-Environment variables always take precedence over values loaded from ``.env``.
+Environment variables always take precedence over values loaded from
+``.env.local`` and ``.env``. Local values override shared defaults.
 Every setting uses the ``TRADING_V2_`` prefix so the new service can run next to
 the legacy application without configuration collisions.
 """
@@ -19,7 +20,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="TRADING_V2_",
-        env_file=".env",
+        env_file=(".env", ".env.local"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

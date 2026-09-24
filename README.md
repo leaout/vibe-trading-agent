@@ -15,6 +15,7 @@ Vibe Trading Agent 是一个面向 A 股、美股和加密货币的多市场交�
 - DeepSeek、OpenAI、Claude 和 OpenAI-compatible 模型。
 - 系统 Paper Broker：资金、持仓、委托、成交、费用、仓位限制、信号幂等和 A 股 T+1。
 - 财经资讯：A 股东方财富、美股 Yahoo Finance、加密货币 Binance 公告。
+- 决策审计：保存信号使用的策略、指标、资讯、模型输入/输出和模拟执行结果；点击 K 线信号查看。
 
 ## 决策流程
 
@@ -39,6 +40,7 @@ cd E:\pro\curs-trading-agent
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-v2.txt
 Copy-Item .env.v2.example .env
+Copy-Item .env.local.example .env.local
 
 cd web_v2
 npm install
@@ -64,11 +66,11 @@ npm run dev
 - API：`http://127.0.0.1:8010/api/v2`
 - OpenAPI：`http://127.0.0.1:8010/docs`
 
-首次打开 Web 时创建本地管理员账户。密码使用 PBKDF2 哈希保存，登录状态使用 HttpOnly Cookie。不要将 `.env`、API Key、Broker 密码或 Session 文件提交到 Git。
+首次打开 Web 时创建本地管理员账户。密码使用 PBKDF2 哈希保存，登录状态使用 HttpOnly Cookie。`.env` 和 `.env.local` 均被 Git 忽略；不要强制添加它们，也不要提交 API Key、Broker 密码或 Session 文件。
 
 ## 模型配置
 
-复制 `.env.v2.example` 后至少配置以下内容：
+将 `.env.local.example` 复制为 `.env.local`，然后只在本机填写密钥：
 
 ```dotenv
 TRADING_V2_MODEL_ENABLED=true
@@ -77,6 +79,8 @@ TRADING_V2_MODEL_NAME=deepseek-chat
 TRADING_V2_MODEL_API_KEY_ENV=DEEPSEEK_API_KEY
 DEEPSEEK_API_KEY=your-secret
 ```
+
+加载优先级为系统环境变量 → `.env.local` → `.env` → 内置默认值。推荐将普通运行参数放在 `.env`，所有密钥只放在 `.env.local`。仓库中的两个 `*.example` 文件只能保留占位符。
 
 其他提供方：
 

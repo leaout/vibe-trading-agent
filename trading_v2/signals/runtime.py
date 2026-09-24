@@ -16,6 +16,7 @@ from trading_v2.signals.evaluator import StrategyEvaluator
 from trading_v2.signals.repository import SignalRepository
 
 if TYPE_CHECKING:
+    from trading_v2.decisions.repository import DecisionRepository
     from trading_v2.decisions.service import DecisionService
     from trading_v2.news.service import NewsService
     from trading_v2.paper.service import PaperTradingService
@@ -34,6 +35,7 @@ class SignalRuntime:
         bar_limit: int = 200,
         paper: "PaperTradingService | None" = None,
         decisions: "DecisionService | None" = None,
+        audit_repository: "DecisionRepository | None" = None,
         news: "NewsService | None" = None,
         decision_news_limit: int = 8,
         decision_news_max_age_hours: int = 48,
@@ -47,6 +49,7 @@ class SignalRuntime:
         self.evaluator = StrategyEvaluator()
         self.paper = paper
         self.decisions = decisions
+        self.audit_repository = audit_repository or (decisions.repository if decisions else None)
         self.news = news
         self.decision_news_limit = decision_news_limit
         self.decision_news_max_age_hours = decision_news_max_age_hours
@@ -93,18 +96,45 @@ class SignalRuntime:
             "strategy_version": version, "side": signal.side.value,
             "bar_time": signal.bar_time.isoformat(), "reason": signal.reason,
         })
-        if self.decisions is not None:
-            news_context = (
-                await self.news.decision_context(
-                    instrument, self.decision_news_limit, self.decision_news_max_age_hours,
-                )
-                if self.news is not None and self.decision_news_limit > 0 else []
+        news_context = (
+            await self.news.decision_context(
+                instrument, self.decision_news_limit, self.decision_news_max_age_hours,
             )
+            if self.decisions is not None and self.news is not None and self.decision_news_limit > 0 else []
+        )
+        if self.audit_repository is not None:
+            await asyncio.to_thread(self.audit_repository.save_context, str(signal.id), session_id, {
+                "strategy": strategy.model_dump(mode="json"),
+                "signal": signal.model_dump(mode="json"),
+                "recent_news": news_context,
+            })
+        if self.decisions is not None:
             decision = await self.decisions.decide(signal, strategy, news_context)
             if self.paper is not None:
-                await self.paper.process_decision(session_id, strategy, signal, decision)
+                order = await self.paper.process_decision(session_id, strategy, signal, decision)
+                if self.audit_repository is not None:
+                    outcome = "model_hold" if decision.action.value == "hold" else "not_executable"
+                    if order is not None:
+                        outcome = order.status
+                    await asyncio.to_thread(self.audit_repository.save_execution, str(signal.id), {
+                        "outcome": outcome,
+                        "order": order.model_dump(mode="json") if order is not None else None,
+                    })
+            elif self.audit_repository is not None:
+                await asyncio.to_thread(self.audit_repository.save_execution, str(signal.id), {
+                    "outcome": "observe_only", "order": None,
+                })
         elif self.paper is not None:
-            await self.paper.process_signal(session_id, strategy, signal)
+            order = await self.paper.process_signal(session_id, strategy, signal)
+            if self.audit_repository is not None:
+                await asyncio.to_thread(self.audit_repository.save_execution, str(signal.id), {
+                    "outcome": order.status if order is not None else "not_executable",
+                    "order": order.model_dump(mode="json") if order is not None else None,
+                })
+        elif self.audit_repository is not None:
+            await asyncio.to_thread(self.audit_repository.save_execution, str(signal.id), {
+                "outcome": "observe_only", "order": None,
+            })
         return signal
 
     async def _run(self) -> None:

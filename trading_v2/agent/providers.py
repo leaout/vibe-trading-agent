@@ -68,8 +68,11 @@ class HttpModelProvider:
         direct = os.getenv(self._api_key_env, "").strip()
         if direct:
             return direct
-        value = dotenv_values(".env").get(self._api_key_env)
-        return str(value).strip() if value else ""
+        for path in (".env.local", ".env"):
+            value = dotenv_values(path).get(self._api_key_env)
+            if value:
+                return str(value).strip()
+        return ""
 
     async def complete_json(
         self,

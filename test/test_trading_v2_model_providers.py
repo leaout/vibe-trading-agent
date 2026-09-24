@@ -1,6 +1,8 @@
 # coding: utf-8
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from trading_v2.agent.models import strategy_json_schema
@@ -20,6 +22,25 @@ class RecordingProvider(HttpModelProvider):
 
 
 class ModelProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_local_env_key_overrides_shared_env_file(self) -> None:
+        settings = AppSettings(
+            model_enabled=True,
+            model_api_key_env="TEST_LOCAL_MODEL_KEY",
+            _env_file=None,
+        )
+        provider = HttpModelProvider(settings)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env").write_text("TEST_LOCAL_MODEL_KEY=shared\n", encoding="utf-8")
+            (root / ".env.local").write_text("TEST_LOCAL_MODEL_KEY=local\n", encoding="utf-8")
+            current = Path.cwd()
+            try:
+                os.chdir(root)
+                with patch.dict(os.environ, {}, clear=True):
+                    self.assertEqual(provider._api_key(), "local")
+            finally:
+                os.chdir(current)
+
     async def test_deepseek_uses_chat_completions_and_includes_schema(self) -> None:
         settings = AppSettings(
             model_enabled=True,

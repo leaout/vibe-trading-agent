@@ -42,6 +42,23 @@ export interface ChartSignal {
   confidence?: number;
 }
 
+export interface DecisionAudit {
+  signalId: string;
+  sessionId: string;
+  context: {
+    strategy?: Record<string, unknown>;
+    signal?: Record<string, unknown>;
+    recent_news?: Array<Record<string, unknown>>;
+    model_request?: Record<string, unknown>;
+  };
+  modelResponse: Record<string, unknown> | null;
+  decision: Record<string, unknown> | null;
+  execution: Record<string, unknown> | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";

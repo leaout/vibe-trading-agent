@@ -8,6 +8,7 @@ from trading_v2.auth.models import User
 from trading_v2.auth.service import AuthService
 
 from trading_v2.config.settings import AppSettings
+from trading_v2.decisions.repository import DecisionRepository
 from trading_v2.agent.providers import ModelProvider
 from trading_v2.events import InMemoryEventStream
 from trading_v2.market.provider import MarketDataProvider
@@ -42,6 +43,10 @@ def get_session_service(request: Request) -> TradingSessionService:
 
 def get_signal_runtime(request: Request) -> SignalRuntime:
     return request.app.state.signal_runtime
+
+
+def get_decision_repository(request: Request) -> DecisionRepository:
+    return request.app.state.decision_repository
 
 
 def get_paper_service(request: Request) -> PaperTradingService:

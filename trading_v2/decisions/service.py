@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import time
 
 from pydantic import ValidationError
 
@@ -35,14 +36,24 @@ class DecisionService:
         existing = await asyncio.to_thread(self.repository.get_for_signal, str(signal.id))
         if existing is not None:
             return existing
+        model_input = {
+            "strategy": strategy.model_dump(mode="json"),
+            "signal": signal.model_dump(mode="json"),
+            "recent_news": news_context or [],
+        }
+        await asyncio.to_thread(self.repository.save_context, str(signal.id), str(signal.session_id), {
+            **model_input,
+            "model_request": {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_payload": model_input,
+                "response_schema": DecisionProposal.model_json_schema(),
+            },
+        })
+        started = time.monotonic()
         try:
             raw = await self.provider.complete_json(
                 SYSTEM_PROMPT,
-                json.dumps({
-                    "strategy": strategy.model_dump(mode="json"),
-                    "signal": signal.model_dump(mode="json"),
-                    "recent_news": news_context or [],
-                }, ensure_ascii=False, default=str),
+                json.dumps(model_input, ensure_ascii=False, default=str),
                 DecisionProposal.model_json_schema(),
             )
             proposal = self._enforce(signal, DecisionProposal.model_validate(raw))
@@ -53,6 +64,14 @@ class DecisionService:
                 rationale=proposal.rationale, model_provider=self.provider.provider_name,
                 model_name=self.provider.model_name, status="completed",
             )
+            await asyncio.to_thread(self.repository.save_model_result, str(signal.id), {
+                "provider_response": raw,
+                "action": decision.action.value,
+                "confidence": decision.confidence,
+                "rationale": decision.rationale,
+                "status": decision.status,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            })
             await self.events.publish("decision.created", {
                 "session_id": str(signal.session_id), "signal_id": str(signal.id),
                 "decision_id": decision.id, "action": decision.action.value,
@@ -60,7 +79,7 @@ class DecisionService:
             })
             return decision
         except (ModelProviderError, ValidationError, ValueError) as exc:
-            return await self._fallback(signal, str(exc))
+            return await self._fallback(signal, str(exc), int((time.monotonic() - started) * 1000))
 
     def _enforce(self, signal: Signal, proposal: DecisionProposal) -> DecisionProposal:
         expected = DecisionAction.BUY if signal.side == SignalSide.BUY else DecisionAction.SELL
@@ -73,7 +92,7 @@ class DecisionService:
             )
         return proposal
 
-    async def _fallback(self, signal: Signal, error: str) -> ModelDecision:
+    async def _fallback(self, signal: Signal, error: str, elapsed_ms: int = 0) -> ModelDecision:
         decision = await asyncio.to_thread(
             self.repository.save, signal_id=str(signal.id),
             session_id=str(signal.session_id), strategy_version=signal.strategy_version,
@@ -82,6 +101,11 @@ class DecisionService:
             model_provider=self.provider.provider_name, model_name=self.provider.model_name,
             status="fallback", error=error,
         )
+        await asyncio.to_thread(self.repository.save_model_result, str(signal.id), {
+            "action": "hold", "confidence": 0,
+            "rationale": "模型不可用或响应无效，安全回退为 HOLD",
+            "status": "fallback", "error": error, "elapsed_ms": elapsed_ms,
+        })
         await self.events.publish("decision.failed", {
             "session_id": str(signal.session_id), "signal_id": str(signal.id),
             "decision_id": decision.id, "action": "hold", "error": error,

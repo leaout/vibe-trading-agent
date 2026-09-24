@@ -101,7 +101,7 @@ Session 不直接消费 Tick，也不提交订单。
 
 ### 4.7 Event Journal
 
-业务表保存当前可查询状态，`audit_events` 保存不可变事实。写入关键状态与对应事件必须处于同一数据库事务。事件至少包含：
+业务表保存当前可查询状态。当前实现新增 `decision_audits_v2`，按候选信号保存模型请求上下文、结构化响应与模拟执行结果，供 UI 复查；完整通用 `audit_events` 事件账本仍是后续工作。写入事件至少包含：
 
 ```text
 event_id, event_type, occurred_at, session_id, correlation_id,
