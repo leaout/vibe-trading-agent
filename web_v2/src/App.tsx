@@ -10,7 +10,7 @@ import { PaperAccountPanel } from "./components/PaperAccountPanel";
 import { SessionSidebar } from "./components/SessionSidebar";
 import type { AgentEvent, AuthUser, Candle, ChartSignal, ChatMessage, PaperAccountDetail, StrategyPromptVersion, TradingSession } from "./types";
 
-const timeframes = ["1m", "5m", "15m", "30m", "1h", "1D"];
+const timeframes = ["1m", "5m", "15m", "30m", "1h", "1D", "1W", "1M", "1Y", "全部"];
 const marketProviders = [
   ["auto", "自动路由"],
   ["public", "公开行情"],

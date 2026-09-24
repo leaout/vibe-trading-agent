@@ -24,9 +24,16 @@ class PublicMarketDataError(RuntimeError):
     """An upstream public market-data request failed."""
 
 
-_YAHOO_INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "60m", "1d": "1d"}
-_BINANCE_INTERVALS = {**_YAHOO_INTERVALS, "1h": "1h"}
-_EASTMONEY_KLT = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "1d": 101}
+_YAHOO_INTERVALS = {
+    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "60m", "1d": "1d", "1w": "1wk", "1mo": "1mo",
+}
+_BINANCE_INTERVALS = {**_YAHOO_INTERVALS, "1h": "1h", "1w": "1w", "1mo": "1M"}
+_EASTMONEY_KLT = {
+    "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
+    "1d": 101, "1w": 102, "1mo": 103,
+}
+_PUBLIC_TIMEFRAMES = {*_YAHOO_INTERVALS, "1y", "all"}
 
 
 class PublicMarketDataProvider:
@@ -76,14 +83,20 @@ class PublicMarketDataProvider:
     async def get_bars(self, instrument: InstrumentId, timeframe: str, limit: int, provider: str = "auto") -> list[Bar]:
         if not 1 <= limit <= 800:
             raise ValueError("limit must be between 1 and 800")
-        if timeframe not in _YAHOO_INTERVALS:
+        if timeframe not in _PUBLIC_TIMEFRAMES:
             raise ValueError(f"unsupported public timeframe: {timeframe}")
         if instrument.asset_class == AssetClass.CN_EQUITY:
             if provider == "sina":
                 return await self._sina_bars(instrument, timeframe, limit)
             if provider == "eastmoney":
                 return await self._eastmoney_bars(instrument, timeframe, limit)
+            if timeframe in {"1w", "1mo", "1y", "all"} and provider != "cpptdx":
+                return await self._eastmoney_bars(instrument, timeframe, limit)
             try:
+                if timeframe in {"1w", "1mo", "1y", "all"}:
+                    daily_limit = min(800, max(limit * 31, limit))
+                    daily = await self.cpptdx.get_bars(instrument, "1d", daily_limit)
+                    return _aggregate_bars(daily, timeframe, limit)
                 return await self.cpptdx.get_bars(instrument, timeframe, limit)
             except Exception:
                 if provider == "cpptdx":
@@ -147,8 +160,9 @@ class PublicMarketDataProvider:
             raise PublicMarketDataError(f"{url}: {exc}") from exc
 
     async def _yahoo_payload(self, instrument: InstrumentId, timeframe: str, limit: int) -> dict[str, Any]:
-        interval = _YAHOO_INTERVALS[timeframe]
-        period = "2y" if timeframe == "1d" else ("60d" if timeframe != "1m" else "7d")
+        request_timeframe = "1mo" if timeframe in {"1y", "all"} else timeframe
+        interval = _YAHOO_INTERVALS[request_timeframe]
+        period = "max" if request_timeframe in {"1w", "1mo"} else ("2y" if timeframe == "1d" else ("60d" if timeframe != "1m" else "7d"))
         payload = await self._get(f"https://query1.finance.yahoo.com/v8/finance/chart/{instrument.symbol}", {"range": period, "interval": interval, "events": "div,splits"})
         try:
             return payload["chart"]["result"][0]
@@ -160,15 +174,16 @@ class PublicMarketDataProvider:
         timestamps = result.get("timestamp") or []
         quote = (result.get("indicators", {}).get("quote") or [{}])[0]
         now = datetime.now(timezone.utc)
-        duration = _duration(timeframe)
+        request_timeframe = "1mo" if timeframe in {"1y", "all"} else timeframe
+        duration = _duration(request_timeframe)
         bars: list[Bar] = []
         for index, timestamp in enumerate(timestamps):
             values = {key: (quote.get(key) or [None] * len(timestamps))[index] for key in ("open", "high", "low", "close", "volume")}
             if any(values[key] is None for key in ("open", "high", "low", "close")):
                 continue
             opened = datetime.fromtimestamp(timestamp, timezone.utc)
-            bars.append(Bar(instrument=instrument, timeframe=timeframe, open_time=opened, close_time=opened + duration, open=_decimal(values["open"]), high=_decimal(values["high"]), low=_decimal(values["low"]), close=_decimal(values["close"]), volume=_decimal(values["volume"] or 0), source="yahoo", is_closed=now >= opened + duration, received_at=now))
-        return bars[-limit:]
+            bars.append(Bar(instrument=instrument, timeframe=request_timeframe, open_time=opened, close_time=opened + duration, open=_decimal(values["open"]), high=_decimal(values["high"]), low=_decimal(values["low"]), close=_decimal(values["close"]), volume=_decimal(values["volume"] or 0), source="yahoo", is_closed=now >= opened + duration, received_at=now))
+        return _aggregate_bars(bars, timeframe, limit)
 
     async def _yahoo_snapshot(self, instrument: InstrumentId) -> MarketSnapshot:
         bars = await self._yahoo_bars(instrument, "1d", 2)
@@ -180,14 +195,16 @@ class PublicMarketDataProvider:
 
     async def _binance_bars(self, instrument: InstrumentId, timeframe: str, limit: int) -> list[Bar]:
         symbol = instrument.symbol.replace("/", "").replace("-", "")
-        payload = await self._get("https://data-api.binance.vision/api/v3/klines", {"symbol": symbol, "interval": _BINANCE_INTERVALS[timeframe], "limit": limit})
+        request_timeframe = "1mo" if timeframe in {"1y", "all"} else timeframe
+        request_limit = min(800, max(limit * 12, limit)) if timeframe == "1y" else limit
+        payload = await self._get("https://data-api.binance.vision/api/v3/klines", {"symbol": symbol, "interval": _BINANCE_INTERVALS[request_timeframe], "limit": request_limit})
         now = datetime.now(timezone.utc)
-        duration = _duration(timeframe)
+        duration = _duration(request_timeframe)
         bars = []
         for row in payload:
             opened = datetime.fromtimestamp(int(row[0]) / 1000, timezone.utc)
-            bars.append(Bar(instrument=instrument, timeframe=timeframe, open_time=opened, close_time=opened + duration, open=_decimal(row[1]), high=_decimal(row[2]), low=_decimal(row[3]), close=_decimal(row[4]), volume=_decimal(row[5]), turnover=_decimal(row[7]), source="binance", is_closed=now >= opened + duration, received_at=now))
-        return bars
+            bars.append(Bar(instrument=instrument, timeframe=request_timeframe, open_time=opened, close_time=opened + duration, open=_decimal(row[1]), high=_decimal(row[2]), low=_decimal(row[3]), close=_decimal(row[4]), volume=_decimal(row[5]), turnover=_decimal(row[7]), source="binance", is_closed=now >= opened + duration, received_at=now))
+        return _aggregate_bars(bars, timeframe, limit)
 
     async def _binance_snapshot(self, instrument: InstrumentId) -> MarketSnapshot:
         symbol = instrument.symbol.replace("/", "").replace("-", "")
@@ -197,18 +214,20 @@ class PublicMarketDataProvider:
 
     async def _eastmoney_bars(self, instrument: InstrumentId, timeframe: str, limit: int) -> list[Bar]:
         secid = _eastmoney_secid(instrument)
-        payload = await self._get("https://push2his.eastmoney.com/api/qt/stock/kline/get", {"secid": secid, "klt": _EASTMONEY_KLT[timeframe], "fqt": 1, "beg": 0, "end": 20500101, "lmt": limit})
+        request_timeframe = "1mo" if timeframe in {"1y", "all"} else timeframe
+        request_limit = min(800, max(limit * 12, limit)) if timeframe == "1y" else limit
+        payload = await self._get("https://push2his.eastmoney.com/api/qt/stock/kline/get", {"secid": secid, "klt": _EASTMONEY_KLT[request_timeframe], "fqt": 1, "beg": 0, "end": 20500101, "lmt": request_limit})
         rows = (payload.get("data") or {}).get("klines") or []
         if not rows:
             return await self._sina_bars(instrument, timeframe, limit)
         now = datetime.now(timezone.utc)
-        duration = _duration(timeframe)
+        duration = _duration(request_timeframe)
         bars = []
         for row in rows:
             parts = row.split(",")
             opened = datetime.fromisoformat(parts[0]).replace(tzinfo=timezone.utc)
-            bars.append(Bar(instrument=instrument, timeframe=timeframe, open_time=opened, close_time=opened + duration, open=_decimal(parts[1]), close=_decimal(parts[2]), high=_decimal(parts[3]), low=_decimal(parts[4]), volume=_decimal(parts[5]), turnover=_decimal(parts[6]), source="eastmoney", is_closed=now >= opened + duration, received_at=now))
-        return bars[-limit:]
+            bars.append(Bar(instrument=instrument, timeframe=request_timeframe, open_time=opened, close_time=opened + duration, open=_decimal(parts[1]), close=_decimal(parts[2]), high=_decimal(parts[3]), low=_decimal(parts[4]), volume=_decimal(parts[5]), turnover=_decimal(parts[6]), source="eastmoney", is_closed=now >= opened + duration, received_at=now))
+        return _aggregate_bars(bars, timeframe, limit)
 
     async def _eastmoney_snapshot(self, instrument: InstrumentId) -> MarketSnapshot:
         raw = (await self._get("https://push2.eastmoney.com/api/qt/stock/get", {"secid": _eastmoney_secid(instrument), "fields": "f43,f44,f45,f46,f47,f48,f60,f58,f57"})).get("data") or {}
@@ -218,15 +237,17 @@ class PublicMarketDataProvider:
         return _snapshot(instrument, _decimal(raw["f43"]) / 100, _decimal(raw["f46"]) / 100, _decimal(raw["f44"]) / 100, _decimal(raw["f45"]) / 100, _decimal(raw["f60"]) / 100, _decimal(raw.get("f47") or 0), _decimal(raw.get("f48") or 0), "eastmoney", now)
 
     async def _sina_bars(self, instrument: InstrumentId, timeframe: str, limit: int) -> list[Bar]:
-        scale = {"1m": 5, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "1d": 240}[timeframe]
-        payload = await self._get("http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData", {"symbol": _sina_symbol(instrument), "scale": scale, "ma": "no", "datalen": limit})
+        request_timeframe = "1d" if timeframe in {"1w", "1mo", "1y", "all"} else timeframe
+        scale = {"1m": 5, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "1d": 240}[request_timeframe]
+        request_limit = min(1023, max(limit * 31, limit)) if request_timeframe == "1d" and timeframe != "1d" else limit
+        payload = await self._get("http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData", {"symbol": _sina_symbol(instrument), "scale": scale, "ma": "no", "datalen": request_limit})
         now = datetime.now(timezone.utc)
-        duration = _duration(timeframe)
+        duration = _duration(request_timeframe)
         bars = []
         for raw in payload or []:
             opened = datetime.fromisoformat(raw["day"]).replace(tzinfo=timezone.utc)
-            bars.append(Bar(instrument=instrument, timeframe=timeframe, open_time=opened, close_time=opened + duration, open=_decimal(raw["open"]), high=_decimal(raw["high"]), low=_decimal(raw["low"]), close=_decimal(raw["close"]), volume=_decimal(raw.get("volume") or 0), source="sina", is_closed=now >= opened + duration, received_at=now))
-        return bars[-limit:]
+            bars.append(Bar(instrument=instrument, timeframe=request_timeframe, open_time=opened, close_time=opened + duration, open=_decimal(raw["open"]), high=_decimal(raw["high"]), low=_decimal(raw["low"]), close=_decimal(raw["close"]), volume=_decimal(raw.get("volume") or 0), source="sina", is_closed=now >= opened + duration, received_at=now))
+        return _aggregate_bars(bars, timeframe, limit)
 
     async def _sina_snapshot(self, instrument: InstrumentId) -> MarketSnapshot:
         text = await self._get_text("http://hq.sinajs.cn/list=" + _sina_symbol(instrument))
@@ -249,7 +270,44 @@ class PublicMarketDataProvider:
 
 
 def _duration(timeframe: str) -> timedelta:
-    return {"1m": timedelta(minutes=1), "5m": timedelta(minutes=5), "15m": timedelta(minutes=15), "30m": timedelta(minutes=30), "1h": timedelta(hours=1), "1d": timedelta(days=1)}[timeframe]
+    return {
+        "1m": timedelta(minutes=1), "5m": timedelta(minutes=5),
+        "15m": timedelta(minutes=15), "30m": timedelta(minutes=30),
+        "1h": timedelta(hours=1), "1d": timedelta(days=1),
+        "1w": timedelta(days=7), "1mo": timedelta(days=31),
+    }[timeframe]
+
+
+def _aggregate_bars(bars: list[Bar], timeframe: str, limit: int) -> list[Bar]:
+    if timeframe == "all":
+        return [bar.model_copy(update={"timeframe": "all"}) for bar in bars[-limit:]]
+    if not bars or timeframe not in {"1w", "1mo", "1y"}:
+        return bars[-limit:]
+    groups: dict[tuple[int, ...], list[Bar]] = {}
+    for bar in bars:
+        if timeframe == "1w":
+            year, week, _ = bar.open_time.isocalendar()
+            key = (year, week)
+        elif timeframe == "1mo":
+            key = (bar.open_time.year, bar.open_time.month)
+        else:
+            key = (bar.open_time.year,)
+        groups.setdefault(key, []).append(bar)
+    aggregated = []
+    for values in groups.values():
+        first, last = values[0], values[-1]
+        turnovers = [item.turnover for item in values if item.turnover is not None]
+        aggregated.append(Bar(
+            instrument=first.instrument, timeframe=timeframe,
+            open_time=first.open_time, close_time=last.close_time,
+            open=first.open, high=max(item.high for item in values),
+            low=min(item.low for item in values), close=last.close,
+            volume=sum((item.volume for item in values), Decimal("0")),
+            turnover=sum(turnovers, Decimal("0")) if turnovers else None,
+            source=first.source, is_closed=last.is_closed,
+            received_at=last.received_at,
+        ))
+    return aggregated[-limit:]
 
 
 def _decimal(value: Any) -> Decimal:

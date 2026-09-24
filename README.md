@@ -85,7 +85,7 @@ cd E:\pro\curs-trading-agent
 
 默认 `TRADING_V2_MARKET_DATA_PROVIDER=public`。A 股优先 cpptdx，失败后依次回退东方财富和新浪；美股使用 Yahoo Finance Chart；加密货币使用 Binance Spot 公共行情。示例标的：`us_equity:XNAS:AAPL`、`crypto:BINANCE:BTCUSDT`。
 
-这些接口只用于行情和模拟盘，不需要 API Key，也不承担真实下单；公开接口存在限流、地域和历史窗口限制。
+这些接口只用于行情和模拟盘，不需要 API Key，也不承担真实下单；图表支持分钟、小时、日、周、月、年和全部历史视图。公开接口存在限流、地域和历史窗口限制。
 
 启动 V2 前端：
 

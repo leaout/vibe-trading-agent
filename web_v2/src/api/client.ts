@@ -261,9 +261,12 @@ export const apiClient = {
       `/sessions/${encodeURIComponent(sessionId)}/candles?timeframe=${encodeURIComponent(timeframe)}`,
     ),
   getMarketBars: async (instrument: string, timeframe: string, limit = 200, provider = "auto") => {
+    const timeframeMap: Record<string, string> = {
+      "1D": "1d", "1W": "1w", "1M": "1mo", "1Y": "1y", "全部": "all",
+    };
     const query = new URLSearchParams({
       instrument,
-      timeframe: timeframe === "1D" ? "1d" : timeframe,
+      timeframe: timeframeMap[timeframe] ?? timeframe,
       limit: String(limit),
       provider,
     });

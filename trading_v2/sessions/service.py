@@ -77,9 +77,8 @@ class TradingSessionService:
         return targets
 
     async def create_session(self, command: CreateSession) -> SessionSnapshot:
-        symbol, venue, timeframe = _infer_market(command)
+        asset_class, symbol, venue, timeframe = _infer_market(command)
         compilation = await self.compiler.compile(command.message)
-        asset_class = command.asset_class
         name = command.name or _short_name(command.message)
         if compilation.strategy is not None:
             raw_asset, venue, symbol = compilation.strategy.instrument.split(":")
@@ -134,20 +133,32 @@ class TradingSessionService:
         self.repository.database.close()
 
 
-def _infer_market(command: CreateSession) -> tuple[str, str, str]:
-    symbol = (command.symbol or "").strip().upper()
-    match = re.search(r"(?<!\d)(\d{6})(?!\d)", command.message)
-    if not symbol and match:
-        symbol = match.group(1)
+def _infer_market(command: CreateSession) -> tuple[AssetClass, str, str, str]:
+    explicit = re.search(
+        r"\b(cn_equity|us_equity|crypto|fx):([A-Za-z0-9_]+):([A-Za-z0-9./-]+)\b",
+        command.message,
+        flags=re.IGNORECASE,
+    )
+    if explicit:
+        asset_class = AssetClass(explicit.group(1).lower())
+        symbol = explicit.group(3).upper()
+        venue = explicit.group(2).upper()
+    else:
+        asset_class = command.asset_class
+        symbol = (command.symbol or "").strip().upper()
+        venue = (command.venue or "").strip().upper()
+    if not explicit:
+        match = re.search(r"(?<!\d)(\d{6})(?!\d)", command.message)
+        if not symbol and match:
+            symbol = match.group(1)
     symbol = symbol or "600519"
-    venue = (command.venue or "").strip().upper()
     if not venue:
         venue = "XSHG" if symbol.startswith(("5", "6", "9")) else "XSHE"
     timeframe = command.timeframe
     timeframe_match = re.search(r"(1|5|15|30|60)\s*分钟", command.message)
     if timeframe_match:
         timeframe = "1h" if timeframe_match.group(1) == "60" else f"{timeframe_match.group(1)}m"
-    return symbol, venue, timeframe
+    return asset_class, symbol, venue, timeframe
 
 
 def _short_name(message: str) -> str:

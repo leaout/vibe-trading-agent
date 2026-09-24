@@ -83,7 +83,7 @@ Default endpoints:
 
 ### Public market data
 
-The default is `TRADING_V2_MARKET_DATA_PROVIDER=public`: cpptdx, then Eastmoney/Sina fallback for China equities, Yahoo Finance Chart for US equities, and Binance Spot public data for crypto. Examples: `us_equity:XNAS:AAPL` and `crypto:BINANCE:BTCUSDT`. These sources are for quotes and paper trading only, do not require API keys, and are subject to rate limits, regional restrictions, and limited intraday history.
+The default is `TRADING_V2_MARKET_DATA_PROVIDER=public`: cpptdx, then Eastmoney/Sina fallback for China equities, Yahoo Finance Chart for US equities, and Binance Spot public data for crypto. Examples: `us_equity:XNAS:AAPL` and `crypto:BINANCE:BTCUSDT`. Charts support minute, hourly, daily, weekly, monthly, yearly, and all-history views. These sources are for quotes and paper trading only, do not require API keys, and are subject to rate limits, regional restrictions, and limited intraday history.
 
 Start the V2 frontend:
 
