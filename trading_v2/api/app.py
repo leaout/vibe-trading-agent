@@ -24,6 +24,7 @@ from trading_v2.decisions.service import DecisionService
 from trading_v2.domain.enums import ConnectionState
 from trading_v2.events import InMemoryEventStream
 from trading_v2.market import CppTdxMarketDataProvider, MarketDataProvider, PublicMarketDataProvider
+from trading_v2.models.profiles import ModelProfileRepository
 from trading_v2.news import PublicNewsProvider, NewsService
 from trading_v2.news.provider import NewsProvider
 from trading_v2.news.repository import NewsRepository
@@ -75,6 +76,7 @@ def create_app(
     )
     signal_repository = SignalRepository(database)
     decision_repository = DecisionRepository(database)
+    model_profiles = ModelProfileRepository(database)
     news_repository = NewsRepository(database)
     news_service = NewsService(news_adapter, news_repository)
     model_provider = build_model_provider(app_settings)
@@ -184,6 +186,7 @@ def create_app(
     app.state.paper_service = paper
     app.state.auth_service = auth
     app.state.model_provider = model_provider
+    app.state.model_profiles = model_profiles
     app.state.decision_service = decision_service
     app.state.decision_repository = decision_repository
 

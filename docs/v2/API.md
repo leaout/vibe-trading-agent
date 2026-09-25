@@ -213,6 +213,10 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 | --- | --- | --- |
 | `GET` | `/model/status` | 返回提供方、模型名、密钥是否已加载和最低置信度，不返回密钥 |
 | `POST` | `/model/test` | 发起一次无交易结构化响应测试，并更新运行状态 |
+| `GET` | `/model-profiles` | 列出模型档案，不返回密钥明文 |
+| `POST` | `/model-profiles` | 创建模型档案，密钥加密保存 |
+| `PUT` | `/model-profiles/{id}` | 更新模型档案；密钥为空时保留原密钥 |
+| `DELETE` | `/model-profiles/{id}` | 删除模型档案 |
 
 以下为后续契约：
 
@@ -220,11 +224,9 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 | --- | --- | --- |
 | `GET` | `/connections` | 行情、模型、Broker 配置状态 |
 | `POST` | `/connections/{id}/test` | 执行无交易连接测试 |
-| `PUT` | `/model-profiles/{id}` | 更新模型配置；密钥为 write-only |
-| `GET` | `/model-profiles` | 返回模型名、超时及 `secret_configured` |
 | `PUT` | `/market-routing` | 配置各市场 Provider 的主备顺序 |
 
-生产环境优先从环境变量或密钥服务读取凭证。API 不保存或返回明文密钥。
+模型档案密钥由 Fernet 加密后存入数据库，仅返回 `secret_configured`。加密密钥默认位于 `data/model-secret.key`，可用 `TRADING_V2_MODEL_SECRET_KEY_FILE` 指定受保护路径。档案配置更改后需重启服务生效；生产环境也可继续使用环境变量提供凭证。API 不返回密钥明文。
 
 ## 8.1 财经资讯
 

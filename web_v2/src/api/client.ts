@@ -7,6 +7,7 @@ import type {
   DecisionAudit,
   PaperAccountDetail,
   ModelStatus,
+  ModelProfile,
   NewsArticle,
   SessionSnapshot,
   StrategyPromptVersion,
@@ -128,6 +129,17 @@ interface ApiModelStatus {
   model: string;
   api_key_env: string;
   minimum_confidence: number;
+}
+
+interface ApiModelProfile {
+  id: string; name: string; provider: ModelProfile["provider"]; model: string;
+  base_url: string; api_key_env: string; secret_configured: boolean;
+  timeout_seconds: number; enabled: boolean; created_at: string; updated_at: string;
+}
+
+interface ModelProfileInput {
+  name: string; provider: ModelProfile["provider"]; model: string; base_url: string;
+  api_key_env: string; secret_value: string; timeout_seconds: number; enabled: boolean;
 }
 
 interface ApiNewsArticle {
@@ -283,6 +295,13 @@ const mapModelStatus = (status: ApiModelStatus): ModelStatus => ({
   minimumConfidence: status.minimum_confidence,
 });
 
+const mapModelProfile = (profile: ApiModelProfile): ModelProfile => ({
+  id: profile.id, name: profile.name, provider: profile.provider, model: profile.model,
+  baseUrl: profile.base_url, apiKeyEnv: profile.api_key_env,
+  secretConfigured: profile.secret_configured, timeoutSeconds: profile.timeout_seconds,
+  enabled: profile.enabled, createdAt: profile.created_at, updatedAt: profile.updated_at,
+});
+
 const mapNewsArticle = (article: ApiNewsArticle): NewsArticle => ({
   id: article.id,
   title: article.title,
@@ -376,6 +395,12 @@ export const apiClient = {
   testModel: () => request<{ connected: boolean; provider: string; model: string; message: string }>(
     "/model/test", { method: "POST" },
   ),
+  getModelProfiles: async () => (await request<ApiModelProfile[]>("/model-profiles")).map(mapModelProfile),
+  saveModelProfile: async (id: string | null, profile: ModelProfileInput) => mapModelProfile(await request<ApiModelProfile>(
+    id ? `/model-profiles/${encodeURIComponent(id)}` : "/model-profiles",
+    { method: id ? "PUT" : "POST", body: JSON.stringify(profile) },
+  )),
+  deleteModelProfile: (id: string) => request<void>(`/model-profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getNews: async (instrument: string, limit = 20) => {
     const query = new URLSearchParams({ instrument, limit: String(limit) });
     return (await request<ApiNewsArticle[]>(`/news?${query.toString()}`)).map(mapNewsArticle);

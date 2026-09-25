@@ -141,6 +141,20 @@ export interface ModelStatus {
   minimumConfidence: number;
 }
 
+export interface ModelProfile {
+  id: string;
+  name: string;
+  provider: "openai" | "deepseek" | "anthropic" | "openai_compatible";
+  model: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  secretConfigured: boolean;
+  timeoutSeconds: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NewsArticle {
   id: string;
   title: string;

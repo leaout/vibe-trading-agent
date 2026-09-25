@@ -12,6 +12,7 @@ from trading_v2.decisions.repository import DecisionRepository
 from trading_v2.agent.providers import ModelProvider
 from trading_v2.events import InMemoryEventStream
 from trading_v2.market.provider import MarketDataProvider
+from trading_v2.models.profiles import ModelProfileRepository
 from trading_v2.news.service import NewsService
 from trading_v2.paper.service import PaperTradingService
 from trading_v2.runtime import RuntimeStateStore
@@ -59,6 +60,10 @@ def get_auth_service(request: Request) -> AuthService:
 
 def get_model_provider(request: Request) -> ModelProvider:
     return request.app.state.model_provider
+
+
+def get_model_profiles(request: Request) -> ModelProfileRepository:
+    return request.app.state.model_profiles
 
 
 def get_news_service(request: Request) -> NewsService:
