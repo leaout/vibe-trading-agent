@@ -64,6 +64,7 @@ pytest.log
 *.bak
 *.session
 data/trading_v2.db*
+data/model-secret.key
 
 # Distributions / packaging
 *.egg-info/

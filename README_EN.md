@@ -13,6 +13,7 @@ Vibe Trading Agent is a multi-market trading agent for China equities, US equiti
 - Public market data: cpptdx/Eastmoney/Sina for China equities, Yahoo Finance for US equities, and Binance for crypto.
 - Minute, hourly, daily, weekly, monthly, yearly, and all-history chart periods.
 - DeepSeek, OpenAI, Claude, and OpenAI-compatible model adapters.
+- Connection settings UI with encrypted model profiles and Eastmoney credentials; the live broker adapter is not yet connected to V2.
 - System Paper Broker with cash, positions, orders, fills, fees, position limits, signal idempotency, and China-equity T+1.
 - Financial news from Eastmoney, Yahoo Finance, and official Binance announcements.
 - Decision audits persist the strategy, indicators, news, model input/output, and paper execution; click a chart signal to inspect it.

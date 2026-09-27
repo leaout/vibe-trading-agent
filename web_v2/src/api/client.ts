@@ -8,6 +8,7 @@ import type {
   PaperAccountDetail,
   ModelStatus,
   ModelProfile,
+  BrokerConfig,
   NewsArticle,
   SessionSnapshot,
   StrategyPromptVersion,
@@ -142,6 +143,12 @@ interface ModelProfileInput {
   api_key_env: string; secret_value: string; timeout_seconds: number; enabled: boolean;
 }
 
+interface ApiBrokerConfig {
+  provider: "eastmoney"; configured: boolean; account_hint: string;
+  account_configured: boolean; password_configured: boolean;
+  session_file: string; updated_at: string | null;
+}
+
 interface ApiNewsArticle {
   id: string;
   title: string;
@@ -165,14 +172,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+  } catch {
+    throw new Error("无法连接后端服务。请确认 trading_v2 已启动，并检查前端 API 地址或本地代理设置。");
+  }
 
   if (!response.ok) {
     let payload: unknown;
@@ -302,6 +314,16 @@ const mapModelProfile = (profile: ApiModelProfile): ModelProfile => ({
   enabled: profile.enabled, createdAt: profile.created_at, updatedAt: profile.updated_at,
 });
 
+const mapBrokerConfig = (config: ApiBrokerConfig): BrokerConfig => ({
+  provider: config.provider,
+  configured: config.configured,
+  accountHint: config.account_hint,
+  accountConfigured: config.account_configured,
+  passwordConfigured: config.password_configured,
+  sessionFile: config.session_file,
+  updatedAt: config.updated_at,
+});
+
 const mapNewsArticle = (article: ApiNewsArticle): NewsArticle => ({
   id: article.id,
   title: article.title,
@@ -401,6 +423,10 @@ export const apiClient = {
     { method: id ? "PUT" : "POST", body: JSON.stringify(profile) },
   )),
   deleteModelProfile: (id: string) => request<void>(`/model-profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  getBrokerConfig: async () => mapBrokerConfig(await request<ApiBrokerConfig>("/broker/config")),
+  saveBrokerConfig: async (config: { account_no: string; password: string; session_file: string }) => mapBrokerConfig(await request<ApiBrokerConfig>("/broker/config", {
+    method: "PUT", body: JSON.stringify({ provider: "eastmoney", ...config }),
+  })),
   getNews: async (instrument: string, limit = 20) => {
     const query = new URLSearchParams({ instrument, limit: String(limit) });
     return (await request<ApiNewsArticle[]>(`/news?${query.toString()}`)).map(mapNewsArticle);

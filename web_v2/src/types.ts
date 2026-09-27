@@ -155,6 +155,16 @@ export interface ModelProfile {
   updatedAt: string;
 }
 
+export interface BrokerConfig {
+  provider: "eastmoney";
+  configured: boolean;
+  accountHint: string;
+  accountConfigured: boolean;
+  passwordConfigured: boolean;
+  sessionFile: string;
+  updatedAt: string | null;
+}
+
 export interface NewsArticle {
   id: string;
   title: string;

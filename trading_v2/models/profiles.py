@@ -2,14 +2,13 @@
 """Persistent, write-only-secret model configuration profiles."""
 
 from datetime import datetime, timezone
-import os
-from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from trading_v2.storage.database import Base, Database
+from trading_v2.models.crypto import decrypt_secret, encrypt_secret
 
 
 class ModelProfileRecord(Base):
@@ -44,7 +43,7 @@ class ModelProfileRepository:
         now = datetime.now(timezone.utc)
         values = dict(values)
         if values.get("secret_value"):
-            values["secret_value"] = self._encrypt(values["secret_value"])
+            values["secret_value"] = encrypt_secret(values["secret_value"])
         with self.database.sessions.begin() as db:
             record = db.get(ModelProfileRecord, profile_id) if profile_id else None
             if record is None:
@@ -60,34 +59,6 @@ class ModelProfileRepository:
                     other.enabled = False
             record.updated_at = now
         return self.get(record.id)  # type: ignore[return-value]
-
-    @staticmethod
-    def _encrypt(secret: str) -> str:
-        """Encrypt at rest with Fernet using a stable local application key."""
-        from cryptography.fernet import Fernet
-
-        key_path = os.getenv("TRADING_V2_MODEL_SECRET_KEY_FILE", "data/model-secret.key")
-        path = Path(key_path)
-        if path.exists():
-            key = path.read_bytes()
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            key = Fernet.generate_key()
-            try:
-                with path.open("xb") as key_file:
-                    key_file.write(key)
-            except FileExistsError:
-                key = path.read_bytes()
-        return Fernet(key).encrypt(secret.encode("utf-8")).decode("ascii")
-
-    @staticmethod
-    def decrypt(secret: str) -> str:
-        """Decrypt an encrypted secret for backend provider use only."""
-        from cryptography.fernet import Fernet
-
-        path = Path(os.getenv("TRADING_V2_MODEL_SECRET_KEY_FILE", "data/model-secret.key"))
-        key = path.read_bytes()
-        return Fernet(key).decrypt(secret.encode("ascii")).decode("utf-8")
 
     def delete(self, profile_id: str) -> bool:
         with self.database.sessions.begin() as db:

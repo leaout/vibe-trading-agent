@@ -13,6 +13,7 @@ from trading_v2.agent.providers import ModelProvider
 from trading_v2.events import InMemoryEventStream
 from trading_v2.market.provider import MarketDataProvider
 from trading_v2.models.profiles import ModelProfileRepository
+from trading_v2.models.broker_config import BrokerConfigRepository
 from trading_v2.news.service import NewsService
 from trading_v2.paper.service import PaperTradingService
 from trading_v2.runtime import RuntimeStateStore
@@ -64,6 +65,10 @@ def get_model_provider(request: Request) -> ModelProvider:
 
 def get_model_profiles(request: Request) -> ModelProfileRepository:
     return request.app.state.model_profiles
+
+
+def get_broker_config(request: Request) -> BrokerConfigRepository:
+    return request.app.state.broker_config
 
 
 def get_news_service(request: Request) -> NewsService:
