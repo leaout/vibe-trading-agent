@@ -1,77 +1,99 @@
 # Vibe Trading Agent
 
-[中文](README.md) | English
+**A self-hosted workspace for AI-assisted strategy research, signal review, and paper trading.**
 
-Vibe Trading Agent is a multi-market trading agent for China equities, US equities, and crypto. Each strategy is a long-lived session: users create and revise it in natural language, the system continuously reads market data, produces candidates from closed bars, asks a model to review them with recent financial news, and passes approved decisions to deterministic risk controls and the system paper account.
+Build a strategy through chat, inspect candidate signals against market data and recent news, and review every model decision with deterministic risk checks and an auditable paper account.
 
-> The current release supports observation and paper trading only. Live automated execution is not available.
+[简体中文](README_ZH.md) | English
 
-## Available today
+> **Status:** Early development. Observation and paper trading only. This project does not place live orders or provide investment advice.
 
-- React + TypeScript workspace with candlesticks, signal markers, strategy chat, prompt versions, decision events, and light/dark themes.
-- FastAPI service with authentication, strategy sessions, SSE events, market data, news, model decisions, and paper accounts.
-- Public market data: cpptdx/Eastmoney/Sina for China equities, Yahoo Finance for US equities, and Binance for crypto.
-- Minute, hourly, daily, weekly, monthly, yearly, and all-history chart periods.
-- DeepSeek, OpenAI, Claude, and OpenAI-compatible model adapters.
-- Connection settings UI with encrypted model profiles and Eastmoney credentials, plus a read-only web-login check; V2 does not submit Eastmoney orders.
-- System Paper Broker with cash, positions, orders, fills, fees, position limits, signal idempotency, and China-equity T+1.
-- Financial news from Eastmoney, Yahoo Finance, and official Binance announcements.
-- Decision audits persist the strategy, indicators, news, model input/output, and paper execution; click a chart signal to inspect it.
+## Why this project
+
+Vibe Trading Agent brings the research loop into one local workspace: describe a strategy, follow its market, inspect candidate signals, and understand how each model review reached a paper-trading outcome. The model can review a candidate, but it cannot size a position, bypass risk controls, or call a broker.
+
+## What works today
+
+- **Persistent strategy sessions:** Create and revise strategies in natural language while keeping prompt and strategy versions.
+- **Multi-market workspace:** Explore China equities, US equities, and crypto with candlestick charts and signal markers.
+- **Candidate signal review:** Local code evaluates closed bars and indicators; a configured model reviews candidates with recent financial news and returns `BUY`, `SELL`, or `HOLD`.
+- **Deterministic safeguards:** Cash, position, and China-equity T+1 checks run after every model decision.
+- **Paper broker:** Track simulated cash, positions, orders, fills, fees, position limits, and idempotent signal handling.
+- **Decision audit trail:** Inspect the strategy version, indicators, news context, model input/output, and paper execution associated with a chart signal.
+- **Bring your own model:** DeepSeek, OpenAI, Claude, and OpenAI-compatible endpoints.
+- **Self-hosted stack:** React + TypeScript frontend, FastAPI backend, and a local SQLite database by default.
+
+Candidate signals are persisted and deduplicated by strategy version, instrument, interval, bar time, and direction, so signal history remains available in the session and audit timeline.
 
 ## Decision flow
 
-```text
-Natural-language strategy
-  → constrained strategy version
-  → closed bars and technical indicators
-  → candidate BUY / SELL signal
-  → model reviews recent news and returns BUY / SELL / HOLD
-  → deterministic cash, position, and T+1 checks
-  → paper fill or rejection
+```mermaid
+flowchart LR
+    A[Strategy session] --> B[Closed bars and indicators]
+    B --> C[Candidate signal]
+    C --> D[Model review with recent news]
+    D --> E[Deterministic risk checks]
+    E --> F[Paper fill or rejection]
+    D --> G[Auditable decision event]
+    E --> G
+    F --> G
 ```
 
-News is subscribed, persisted, and deduplicated per session instrument. When a candidate appears, the service includes up to eight items from the previous 48 hours as temporary context. News is not appended to normal chat history and cannot place an order by itself. The model cannot size orders, bypass risk controls, or access a broker. Failures, timeouts, low confidence, and invalid output safely become `HOLD`.
+News is subscribed, persisted, and deduplicated per session instrument. A candidate can include up to eight news items from the previous 48 hours as temporary context. News alone cannot trigger a trade. Model failures, timeouts, low confidence, and invalid output become `HOLD`.
 
 ## Quick start
 
 Requirements: Python 3.10+ and Node.js 20+.
 
-```powershell
-cd E:\pro\curs-trading-agent
+```sh
+git clone https://github.com/leaout/vibe-trading-agent.git
+cd vibe-trading-agent
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-v2.txt
+```
+
+Install dependencies and prepare local configuration:
+
+```sh
+# macOS / Linux
+.venv/bin/python -m pip install -r requirements-v2.txt
+cp .env.v2.example .env
+cp .env.local.example .env.local
+
+# Windows PowerShell
+.venv\Scripts\python.exe -m pip install -r requirements-v2.txt
 Copy-Item .env.v2.example .env
 Copy-Item .env.local.example .env.local
+```
 
+Install the frontend dependencies:
+
+```sh
 cd web_v2
 npm install
 ```
 
-Start the backend:
+Run the backend from the repository root:
 
-```powershell
-cd E:\pro\curs-trading-agent
-.\.venv\Scripts\python.exe -m trading_v2
+```sh
+# macOS / Linux
+.venv/bin/python -m trading_v2
+
+# Windows PowerShell
+.venv\Scripts\python.exe -m trading_v2
 ```
 
-Start the frontend:
+In a second terminal, run the frontend:
 
-```powershell
-cd E:\pro\curs-trading-agent\web_v2
+```sh
+cd web_v2
 npm run dev
 ```
 
-Open:
+Open `http://127.0.0.1:5173`. The backend API is at `http://127.0.0.1:8010/api/v2`, with its OpenAPI page at `http://127.0.0.1:8010/docs`. Create the local administrator account on first visit.
 
-- Web: `http://127.0.0.1:5173`
-- API: `http://127.0.0.1:8010/api/v2`
-- OpenAPI: `http://127.0.0.1:8010/docs`
+## Configure a model
 
-Create the local administrator on the first visit. Passwords are stored as PBKDF2 hashes and login state uses an HttpOnly cookie. Both `.env` and `.env.local` are ignored by Git; never force-add them or commit API keys, broker passwords, or session files.
-
-## Model configuration
-
-Copy `.env.local.example` to `.env.local`, then add the key only on this machine:
+Add a model API key to `.env.local` on your machine. For example:
 
 ```dotenv
 TRADING_V2_MODEL_ENABLED=true
@@ -81,52 +103,48 @@ TRADING_V2_MODEL_API_KEY_ENV=DEEPSEEK_API_KEY
 DEEPSEEK_API_KEY=your-secret
 ```
 
-Precedence is process environment → `.env.local` → `.env` → built-in defaults. Keep ordinary runtime settings in `.env` and all secrets in `.env.local`. Tracked `*.example` files must contain placeholders only.
+Supported providers include `deepseek`, `openai`, `anthropic`, and `openai_compatible`. For an OpenAI-compatible endpoint, also set `TRADING_V2_MODEL_BASE_URL`. The UI can validate the connection without placing a trade.
 
-Other providers:
+Keep secrets in ignored `.env.local` or environment variables; never commit API keys, broker passwords, cookies, or session files. Tracked `.example` files should contain placeholders only.
 
-| Provider | `TRADING_V2_MODEL_PROVIDER` | Example key variable |
-|---|---|---|
-| OpenAI | `openai` | `OPENAI_API_KEY` |
-| Claude | `anthropic` | `ANTHROPIC_API_KEY` |
-| OpenAI-compatible | `openai_compatible` | Custom; also set `TRADING_V2_MODEL_BASE_URL` |
+## Data sources and limits
 
-Use “决策模型” in the lower-left sidebar to inspect the configuration and run a no-trade connection test.
+| Market | Current public data adapters | Example instrument |
+| --- | --- | --- |
+| China equities | Eastmoney, Sina | `cn_equity:XSHG:600519` |
+| US equities | Yahoo Finance | `us_equity:XNAS:AAPL` |
+| Crypto | Binance | `crypto:BINANCE:BTCUSDT` |
 
-## Data and news
+Public data services may have rate limits, regional restrictions, or limited history. Missing market data is reported explicitly; the UI does not substitute test data for live market data. QMT and live broker adapters are not used; the system never submits real orders.
 
-The default database is `data/trading_v2.db`. Set `TRADING_V2_DATABASE_URL` to use PostgreSQL in production.
+The default database is `data/trading_v2.db`. Set `TRADING_V2_DATABASE_URL` to use PostgreSQL. Runtime settings use the `TRADING_V2_` environment prefix. See [.env.v2.example](.env.v2.example) and [the V2 documentation](docs/v2/ARCHITECTURE.md).
 
-Public market and news sources require no API key, but may be affected by rate limits, regional restrictions, and limited history windows. Missing market data is reported explicitly; the UI never substitutes test candles. News is refreshed every 60 seconds by default. See [.env.v2.example](.env.v2.example) for related settings.
+## Safety and scope
 
-Example instruments:
+- The default execution mode is `observe`; the available broker is a system paper broker.
+- The model never connects directly to a broker and cannot override deterministic risk checks.
+- This is a software project for research and simulation, not financial advice or a promise of returns.
+- Do not connect a brokerage account expecting live execution.
 
-- China equity: `cn_equity:XSHG:600519`
-- US equity: `us_equity:XNAS:AAPL`
-- Crypto: `crypto:BINANCE:BTCUSDT`
+## Development
 
-## Tests
+```sh
+# Backend tests
+python -m unittest discover -s test -p "test_trading_v2*.py" -v
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s test -p "test_trading_v2*.py" -v
-
+# Frontend build
 cd web_v2
 npm run build
 ```
 
-## Repository layout
+See [Architecture](docs/v2/ARCHITECTURE.md), [Trading lifecycle](docs/v2/TRADING_LIFECYCLE.md), [API](docs/v2/API.md), and [Data model](docs/v2/DATA_MODEL.md) for implementation details.
 
-```text
-trading_v2/  Backend, strategy sessions, market data, news, decisions, and paper trading
-web_v2/      React workspace
-docs/v2/     Architecture, data model, API, and trading lifecycle
-test/        V2 automated tests
-```
+## Contributing and license
 
-## Documentation
+Bug reports and focused pull requests are welcome. Please include reproducible steps for issues and never attach secrets, account credentials, or private trading data.
 
-- [Architecture](docs/v2/ARCHITECTURE.md)
-- [Trading lifecycle](docs/v2/TRADING_LIFECYCLE.md)
-- [API](docs/v2/API.md)
-- [Data model](docs/v2/DATA_MODEL.md)
-- [中文 README](README.md)
+**License:** No license has been declared yet. Public visibility does not grant permission to reuse, modify, or redistribute this code. A license should be selected before inviting external contributions or reuse.
+
+---
+
+For the Chinese version, see [README_ZH.md](README_ZH.md).
