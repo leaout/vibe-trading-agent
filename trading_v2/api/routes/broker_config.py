@@ -2,17 +2,24 @@
 """Authenticated API for locally stored broker connection settings."""
 
 import asyncio
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from trading_v2.adapters.eastmoney_web import (
+    InvalidEastMoneySessionPath,
+    test_eastmoney_web_connection,
+)
 from trading_v2.api.dependencies import get_broker_config, require_auth
 from trading_v2.auth.models import User
+from trading_v2.models.crypto import decrypt_secret
 from trading_v2.models.broker_config import BrokerConfigRecord, BrokerConfigRepository
 
 router = APIRouter(prefix="/broker", tags=["broker-configuration"])
+logger = logging.getLogger(__name__)
 
 
 class BrokerConfigInput(BaseModel):
@@ -30,6 +37,15 @@ class BrokerConfigResponse(BaseModel):
     password_configured: bool
     session_file: str
     updated_at: datetime | None = None
+
+
+class BrokerConnectionTestResponse(BaseModel):
+    connected: bool
+    provider: Literal["eastmoney"] = "eastmoney"
+    account_hint: str
+    session_reused: bool
+    checked_at: datetime
+    message: str
 
 
 def _response(record: BrokerConfigRecord | None) -> BrokerConfigResponse:
@@ -76,3 +92,53 @@ async def save_config(
         raise HTTPException(status_code=422, detail="请填写交易密码")
     record = await asyncio.to_thread(repository.save, payload.model_dump())
     return _response(record)
+
+
+@router.post("/test-connection", response_model=BrokerConnectionTestResponse)
+async def test_connection(
+    repository: Annotated[BrokerConfigRepository, Depends(get_broker_config)],
+    _: Annotated[User, Depends(require_auth)],
+) -> BrokerConnectionTestResponse:
+    record = await asyncio.to_thread(repository.get)
+    if record is None or not record.account_no_encrypted or not record.password_encrypted:
+        raise HTTPException(status_code=409, detail="请先保存东方财富资金账号和交易密码")
+
+    try:
+        account_no = decrypt_secret(record.account_no_encrypted)
+        password = decrypt_secret(record.password_encrypted)
+    except Exception as exc:
+        logger.warning("Eastmoney credentials could not be decrypted (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=500,
+            detail="本地券商凭证无法解密，请检查加密密钥文件。",
+        ) from None
+
+    try:
+        result = await asyncio.to_thread(
+            test_eastmoney_web_connection,
+            account_no,
+            password,
+            record.session_file,
+        )
+    except InvalidEastMoneySessionPath as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except ImportError as exc:
+        logger.warning("Eastmoney web adapter dependency is unavailable (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="东方财富网页登录组件未安装，请按 requirements-v2.txt 安装依赖后重启服务。",
+        ) from None
+    except Exception as exc:
+        logger.warning("Eastmoney read-only connection check failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail="东方财富网页登录或只读校验失败。请在官方客户端确认账号、密码与账户状态后重试；服务端未回传券商原始响应。",
+        ) from None
+
+    return BrokerConnectionTestResponse(
+        connected=result.connected,
+        account_hint=result.account_hint,
+        session_reused=result.session_reused,
+        checked_at=datetime.now(timezone.utc),
+        message=result.message,
+    )

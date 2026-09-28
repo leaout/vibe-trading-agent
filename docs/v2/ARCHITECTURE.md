@@ -129,7 +129,9 @@ class Broker:
     async def reconcile(self): ...
 ```
 
-首批实现为 cpptdx；OpenAI、DeepSeek、Claude；Paper、东方财富。接口之外的业务模块使用普通 Python 服务和显式依赖注入。
+首批实现为 cpptdx；OpenAI、DeepSeek、Claude；Paper Broker。接口之外的业务模块使用普通 Python 服务和显式依赖注入。东方财富目前只有网页会话和只读连接校验，尚未实现此 Broker 委托接口。
+
+当前东方财富 V2 适配器只负责网页登录会话和只读账户校验。网页登录依赖券商网页端实现，不能视为稳定的官方量化 API；V2 目前没有东方财富委托提交路径。
 
 ## 6. 建议目录
 

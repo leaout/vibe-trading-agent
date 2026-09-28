@@ -20,6 +20,7 @@ export function BrokerSettingsPanel() {
   const [sessionFile, setSessionFile] = useState(emptyConfig.sessionFile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -54,11 +55,26 @@ export function BrokerSettingsPanel() {
       setConfig(saved);
       setAccountNo("");
       setPassword("");
-      setMessage("东方财富凭证已加密保存。当前 V2 服务尚未使用此配置建立券商连接。");
+      setMessage("东方财富凭证已加密保存。点击“测试网页连接”进行只读验证。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存券商配置失败，请检查后重试。");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const testConnection = async () => {
+    setTesting(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiClient.testBrokerConnection();
+      const sessionLabel = result.session_reused ? "已复用本机会话。" : "已建立本机会话。";
+      setMessage(`${result.account_hint} ${result.message} ${sessionLabel}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "东方财富网页连接测试失败。");
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -77,7 +93,7 @@ export function BrokerSettingsPanel() {
 
       <div className="broker-safety-notice" role="note">
         <span className="broker-notice-icon">!</span>
-        <p><strong>配置不代表已连接</strong>当前 V2 尚未接入东方财富交易适配器。保存只会加密保管凭证，不会登录账户、读取资金或发送订单。</p>
+        <p><strong>网页会话只读验证</strong>测试会通过东方财富网页交易网关登录、处理验证码并查询账户状态，保存加密会话文件；不会发送委托。网页接口和验证码规则变化可能导致连接失效。</p>
       </div>
 
       {loadError && (
@@ -127,7 +143,7 @@ export function BrokerSettingsPanel() {
               placeholder="data/eastmoney_trader.session"
               required
             />
-            <small>本机文件路径，不会上传会话文件内容。</small>
+            <small>服务端会在 data 目录内加密保存会话文件，不会把会话内容回传浏览器。</small>
           </label>
         </div>
 
@@ -136,8 +152,16 @@ export function BrokerSettingsPanel() {
         {message && <div className="model-feedback success" role="status">{message}</div>}
 
         <div className="broker-editor-footer">
-          <span>保存凭证不会开启实盘交易。</span>
-          <button type="submit" className="model-primary" disabled={saving || loading}>{saving ? "正在保存…" : "保存券商配置"}</button>
+          <span>连接测试只读；不会发出买入、卖出或撤单请求。</span>
+          <div className="model-editor-actions">
+            <button
+              type="button"
+              className="model-secondary"
+              onClick={() => void testConnection()}
+              disabled={!config.configured || Boolean(accountNo.trim() || password) || sessionFile !== config.sessionFile || saving || testing || loading}
+            >{testing ? "正在测试网页连接…" : "测试网页连接"}</button>
+            <button type="submit" className="model-primary" disabled={saving || testing || loading}>{saving ? "正在保存…" : "保存券商配置"}</button>
+          </div>
         </div>
       </form>
     </div>

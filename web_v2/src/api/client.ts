@@ -149,6 +149,11 @@ interface ApiBrokerConfig {
   session_file: string; updated_at: string | null;
 }
 
+interface ApiBrokerConnectionTest {
+  connected: boolean; provider: "eastmoney"; account_hint: string;
+  session_reused: boolean; checked_at: string; message: string;
+}
+
 interface ApiNewsArticle {
   id: string;
   title: string;
@@ -193,7 +198,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       payload = await response.text();
     }
-    throw new ApiError(`请求失败：${response.status}`, response.status, payload);
+    const detail = typeof payload === "object" && payload !== null && "detail" in payload
+      ? (payload as { detail?: unknown }).detail
+      : null;
+    throw new ApiError(
+      typeof detail === "string" ? detail : `请求失败：${response.status}`,
+      response.status,
+      payload,
+    );
   }
 
   if (response.status === 204) return undefined as T;
@@ -427,6 +439,7 @@ export const apiClient = {
   saveBrokerConfig: async (config: { account_no: string; password: string; session_file: string }) => mapBrokerConfig(await request<ApiBrokerConfig>("/broker/config", {
     method: "PUT", body: JSON.stringify({ provider: "eastmoney", ...config }),
   })),
+  testBrokerConnection: () => request<ApiBrokerConnectionTest>("/broker/test-connection", { method: "POST" }),
   getNews: async (instrument: string, limit = 20) => {
     const query = new URLSearchParams({ instrument, limit: String(limit) });
     return (await request<ApiNewsArticle[]>(`/news?${query.toString()}`)).map(mapNewsArticle);

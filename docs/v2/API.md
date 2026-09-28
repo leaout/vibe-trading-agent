@@ -219,6 +219,7 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 | `DELETE` | `/model-profiles/{id}` | 删除模型档案 |
 | `GET` | `/broker/config` | 查看东方财富配置状态；账号只返回尾号，密码不返回 |
 | `PUT` | `/broker/config` | 保存东方财富账号、密码与本地会话文件路径；账号和密码加密保存 |
+| `POST` | `/broker/test-connection` | 通过网页交易网关登录并做只读账户校验；复用加密本地会话，不发送委托 |
 
 以下为后续契约：
 
@@ -228,7 +229,7 @@ GET /api/v2/market/bars?instrument=CN_EQUITY:XSHG:600000&timeframe=5m&from=...&t
 | `POST` | `/connections/{id}/test` | 执行无交易连接测试 |
 | `PUT` | `/market-routing` | 配置各市场 Provider 的主备顺序 |
 
-模型档案密钥以及券商账号、密码由 Fernet 加密后存入数据库，不通过 API 回传明文。加密密钥默认位于 `data/model-secret.key`，可用 `TRADING_V2_MODEL_SECRET_KEY_FILE` 指定受保护路径。当前券商接口仅保存配置，V2 尚未接入东方财富交易适配器，不会通过该配置登录或下单。更新配置不要求重启；后续接入适配器时还需补充连接测试和账户级实盘授权。
+模型档案密钥以及券商账号、密码由 Fernet 加密后存入数据库，不通过 API 回传明文。加密密钥默认位于 `data/model-secret.key`，可用 `TRADING_V2_MODEL_SECRET_KEY_FILE` 指定受保护路径。东方财富连接测试沿用旧版网页交易网关，仅登录并读取账户状态以验证会话，不返回资金数值，也不发送委托；会话文件使用同一密钥加密后保存在服务端 `data/` 目录。网页接口及验证码规则可能变化，连接稳定性不由本服务保证。V2 仍未接入东方财富下单接口，真实自动交易不可用。
 
 ## 8.1 财经资讯
 

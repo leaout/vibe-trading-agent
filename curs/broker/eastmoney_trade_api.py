@@ -32,6 +32,7 @@ import random
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -59,6 +60,14 @@ HEADERS = {
     "Referer": "https://jywg.18.cn/Login?el=1&clear=1",
     "X-Requested-With": "XMLHttpRequest",
 }
+
+
+class _TimeoutSession(requests.Session):
+    """Requests session with bounded network waits for broker calls."""
+
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", (5, 15))
+        return super().request(method, url, **kwargs)
 
 
 def _encrypt_password(pwd: str) -> str:
@@ -117,13 +126,18 @@ def _safe_int(val, default=0) -> int:
 class EastMoneyTradeAPI:
     """东方财富证券交易 API 客户端"""
 
-    def __init__(self, session_file: str = "eastmoney_trader.session"):
+    def __init__(
+        self,
+        session_file: str = "eastmoney_trader.session",
+        session_key_file: str | None = None,
+    ):
         self.session_file = session_file
+        self.session_key_file = session_key_file
         self.validate_key: Optional[str] = None
         self.account_no: str = ""
         self._cached_account_no: str = ""
-        self.session = requests.Session()
-        self.session.verify = False
+        self.session = _TimeoutSession()
+        self.session.verify = True
         self.session.headers.update(HEADERS)
         self._ocr = ddddocr.DdddOcr()
 
@@ -135,11 +149,76 @@ class EastMoneyTradeAPI:
     def _save_session(self):
         session_dir = os.path.dirname(os.path.abspath(self.session_file))
         os.makedirs(session_dir, exist_ok=True)
+        if self.session_key_file:
+            from cryptography.fernet import Fernet
+
+            cookies = [
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain or "",
+                    "path": cookie.path or "/",
+                    "expires": cookie.expires,
+                    "secure": cookie.secure,
+                    "rest": {str(key): str(value) for key, value in cookie._rest.items()},
+                }
+                for cookie in self.session.cookies
+            ]
+            payload = json.dumps(
+                {
+                    "version": 1,
+                    "account_no": self.account_no,
+                    "validate_key": self.validate_key,
+                    "cookies": cookies,
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            encrypted = Fernet(Path(self.session_key_file).read_bytes()).encrypt(payload)
+            session_path = Path(self.session_file)
+            temporary_path = session_path.with_name(
+                f"{session_path.stem}.{uuid.uuid4().hex}.tmp.session"
+            )
+            temporary_path.write_bytes(encrypted)
+            os.replace(temporary_path, session_path)
+            return
         with open(self.session_file, "wb") as f:
             pickle.dump((self.account_no, self.validate_key, self.session), f)
 
     def _reload_session(self) -> bool:
         if os.path.exists(self.session_file):
+            if self.session_key_file:
+                try:
+                    from cryptography.fernet import Fernet
+
+                    encrypted = Path(self.session_file).read_bytes()
+                    payload = json.loads(
+                        Fernet(Path(self.session_key_file).read_bytes())
+                        .decrypt(encrypted)
+                        .decode("utf-8")
+                    )
+                    if payload.get("version") != 1:
+                        return False
+                    self._cached_account_no = str(payload.get("account_no", ""))
+                    self.validate_key = str(payload.get("validate_key", "")) or None
+                    self.session.cookies.clear()
+                    for item in payload.get("cookies", []):
+                        cookie = requests.cookies.create_cookie(
+                            name=str(item["name"]),
+                            value=str(item["value"]),
+                            domain=str(item.get("domain", "")),
+                            path=str(item.get("path", "/")),
+                            expires=item.get("expires"),
+                            secure=bool(item.get("secure", False)),
+                            rest=item.get("rest", {}),
+                        )
+                        self.session.cookies.set_cookie(cookie)
+                    return bool(self._cached_account_no and self.validate_key)
+                except Exception:
+                    # Ignore expired, corrupt, or pre-upgrade pickle session files.
+                    self._cached_account_no = ""
+                    self.validate_key = None
+                    self.session.cookies.clear()
+                    return False
             try:
                 with open(self.session_file, "rb") as f:
                     cached = pickle.load(f)
@@ -160,13 +239,14 @@ class EastMoneyTradeAPI:
     # ─── 登录 ──────────────────────────────────────────
 
     def _recognize_captcha(self) -> str:
-        rand = f"0.305{random.randint(100000, 900000)}"
-        resp = self.session.get(f"https://jywg.18.cn/Login/YZM?randNum={rand}")
-        code = self._ocr.classification(resp.content)
-        if len(code) == 4:
-            return code
-        time.sleep(1)
-        return self._recognize_captcha()
+        for _ in range(5):
+            rand = f"0.305{random.randint(100000, 900000)}"
+            resp = self.session.get(f"https://jywg.18.cn/Login/YZM?randNum={rand}")
+            code = self._ocr.classification(resp.content)
+            if len(code) == 4:
+                return code
+            time.sleep(1)
+        raise RuntimeError("验证码识别失败")
 
     def login(self, account_no: str, password: str) -> dict:
         """
